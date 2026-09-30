@@ -50,7 +50,7 @@ build config changes are needed for a new action.
 
 ## Conventions
 
-Lessons from past stage reviews, so a new stage does not repeat them:
+Lessons from past reviews, so a new action does not repeat them:
 
 - Move shared code to `src/lib/` as soon as a second action needs it. Do not let
   two actions carry byte-for-byte copies of the same logic.

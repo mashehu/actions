@@ -1,7 +1,3 @@
-// Shared by every action that treats a missing file as a normal case, not a
-// crash (read-config's config file, nf-test's TAP file, validate-patch's
-// patch file).
-
 /**
  * Node's fs errors always carry a string .code, regardless of which realm
  * constructed them. Checking that shape, rather than `instanceof Error`,

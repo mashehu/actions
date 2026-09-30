@@ -29566,17 +29566,12 @@ function encodeOutput(value) {
     return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
-// Shared by every action that writes untrusted values into a job summary
-// table (nf-test, read-config): core.summary.addTable() writes cell data as
-// raw HTML, unescaped.
+// core.summary.addTable() writes cell data as raw HTML, unescaped.
 /** Escapes text for a job summary table cell. */
 function escapeHtml(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Shared by every action that treats a missing file as a normal case, not a
-// crash (read-config's config file, nf-test's TAP file, validate-patch's
-// patch file).
 /**
  * Node's fs errors always carry a string .code, regardless of which realm
  * constructed them. Checking that shape, rather than `instanceof Error`,
@@ -29591,8 +29586,8 @@ function isEnoent(error) {
 
 // Pure classification of a non-regular-file fs.Stats, for the "not a regular
 // file" rejection message. A symlink is the case an uploaded artifact can
-// actually contain (see validate-patch's and post-comment's run.ts), but
-// every other non-regular type is named too, so the message is never a bare
+// actually contain (see validate-patch's run.ts), but every other
+// non-regular type is named too, so the message is never a bare
 // "unknown".
 /** Names the type of a non-regular-file stat result, for an error message. */
 function describeType(stat) {
@@ -29638,8 +29633,6 @@ async function writeSummaryBestEffort() {
     }
 }
 
-// Shared predicate for every setting that must be a positive integer
-// (get-shards' max-shards, read-config's number-kind settings).
 /** Throws unless `value` is a positive integer. `label` names the value in the message. */
 function assertPositiveInteger(value, label) {
     if (!Number.isInteger(value) || value <= 0) {
@@ -29710,9 +29703,9 @@ function readInputs() {
 /**
  * Runs `git apply <args>` and returns its captured output.
  *
- * JSON-encodes the args before logging, the same reasoning as
- * src/lib/run-nf-test.ts: it renders a newline in an untrusted value (the
- * patch path) as \n, so it can't inject a workflow command into the log.
+ * JSON-encodes the args before logging: it renders a newline in an untrusted
+ * value (the patch path) as \n, so it can't inject a workflow command into the
+ * log.
  * silent: true stops @actions/exec echoing its own unencoded command line,
  * which would otherwise reopen the same injection.
  */

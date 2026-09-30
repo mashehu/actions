@@ -100,8 +100,7 @@ export const SETTINGS: readonly SettingDef[] = [
     configPath: 'ci.awsfulltest_required_approvals',
     kind: 'number',
     // Two distinct, trusted approvals. A pipeline with too few maintainers
-    // to reach that lowers it in .nf-core.yml; see README.md's awsfulltest.yml
-    // section for why this is configurable rather than fixed.
+    // to reach that lowers it in .nf-core.yml.
     default: 2,
     hasInput: true
   }),

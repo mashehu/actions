@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Builds every action under src/actions/*, or exits cleanly if there is
-// nothing to build yet (stage 1 adds the first action).
+// nothing to build.
 //
 // Rollup's CLI rejects a config file that resolves to an empty array, so
 // this checks first and only invokes Rollup when there is real work to do.
@@ -21,7 +21,7 @@ const rollupBin = join(repoRoot, 'node_modules/rollup/dist/bin/rollup')
 const subdirs = listSubdirectories(srcDir)
 
 if (subdirs.length === 0) {
-  // No subdirectories at all is stage 0: nothing built yet, exit clean.
+  // No subdirectories at all: nothing to build, exit clean.
   console.log('No actions found under src/actions. Nothing to build.')
   process.exit(0)
 }

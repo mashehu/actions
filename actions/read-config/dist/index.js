@@ -35598,17 +35598,12 @@ function encodeOutput(value) {
     return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
-// Shared by every action that writes untrusted values into a job summary
-// table (nf-test, read-config): core.summary.addTable() writes cell data as
-// raw HTML, unescaped.
+// core.summary.addTable() writes cell data as raw HTML, unescaped.
 /** Escapes text for a job summary table cell. */
 function escapeHtml(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Shared by every action that treats a missing file as a normal case, not a
-// crash (read-config's config file, nf-test's TAP file, validate-patch's
-// patch file).
 /**
  * Node's fs errors always carry a string .code, regardless of which realm
  * constructed them. Checking that shape, rather than `instanceof Error`,
@@ -35706,8 +35701,7 @@ const SETTINGS = [
         configPath: 'ci.awsfulltest_required_approvals',
         kind: 'number',
         // Two distinct, trusted approvals. A pipeline with too few maintainers
-        // to reach that lowers it in .nf-core.yml; see README.md's awsfulltest.yml
-        // section for why this is configurable rather than fixed.
+        // to reach that lowers it in .nf-core.yml.
         default: 2,
         hasInput: true
     }),
@@ -35736,8 +35730,6 @@ const SETTINGS = [
 /** Second segment of every configPath under the top-level 'ci' key, for the unknown-key check. */
 const KNOWN_CI_KEYS = SETTINGS.filter((setting) => setting.configPath.startsWith('ci.')).map((setting) => setting.configPath.slice('ci.'.length));
 
-// Shared predicate for every setting that must be a positive integer
-// (get-shards' max-shards, read-config's number-kind settings).
 /** Throws unless `value` is a positive integer. `label` names the value in the message. */
 function assertPositiveInteger(value, label) {
     if (!Number.isInteger(value) || value <= 0) {
@@ -35965,9 +35957,8 @@ function logAndWriteSummary(rows) {
     for (const row of rows) {
         // A file-sourced value is a contributor's own .nf-core.yml on a pull
         // request: JSON-encode it so a value containing a newline can't inject
-        // a workflow command into the log (same reasoning as run-nf-test.ts,
-        // plan-run and validate-patch). The summary table below is escaped for
-        // HTML separately; this is the log path, which needs its own encoding.
+        // a workflow command into the log. The summary table below is escaped
+        // for HTML separately; this is the log path, which needs its own encoding.
         info(`  ${row.setting} = ${JSON.stringify(row.raw)} (${row.source})`);
     }
     summary.addHeading('read-config: resolved settings', 3).addTable([
