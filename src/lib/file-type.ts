@@ -1,7 +1,7 @@
 // Pure classification of a non-regular-file fs.Stats, for the "not a regular
 // file" rejection message. A symlink is the case an uploaded artifact can
-// actually contain (see validate-patch's and post-comment's run.ts), but
-// every other non-regular type is named too, so the message is never a bare
+// actually contain (see validate-patch's run.ts), but every other
+// non-regular type is named too, so the message is never a bare
 // "unknown".
 
 /** The subset of fs.Stats this needs. Lets a test build a fake without touching the filesystem. */

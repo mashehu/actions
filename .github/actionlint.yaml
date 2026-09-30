@@ -1,63 +1,10 @@
 # See: https://github.com/rhysd/actionlint/blob/main/docs/config.md
-self-hosted-runner:
-  # RunsOn (runs-on.com) disk-size directive, a static custom label. The
-  # 'runs-on=' and 'runner=' labels beside it contain an expression, so
-  # actionlint already treats those as dynamic and skips this check for them.
-  labels:
-    - volume=80gb
-
 paths:
-  .github/workflows/nf-test.yml:
+  .github/workflows/fix-linting.yml:
     ignore:
       # actionlint (as of v1.7.12) predates GitHub's '$/' self-repository
       # action syntax (GA July 2026), and rejects it as a ref-less format.
-      # '$/' is deliberate here: see README.md's "Referencing the sibling
-      # actions" note for why. Remove this once actionlint recognises '$/'.
-      - 'specifying action
-        "\$/actions/(read-config|get-shards|nf-test|nf-test-comment|plan-run)"
-        in invalid format because ref is missing'
-  .github/workflows/branch.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling action.
-      - 'specifying action "\$/actions/branch" in invalid format because ref is
-        missing'
-  .github/workflows/fix-linting.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling actions.
+      # See README.md's "Referencing the sibling actions". Remove this once
+      # actionlint recognises '$/'.
       - 'specifying action "\$/actions/(read-config|validate-patch)" in invalid
         format because ref is missing'
-  .github/workflows/linting.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling action.
-      - 'specifying action "\$/actions/read-config" in invalid format because
-        ref is missing'
-  .github/workflows/pr-comment.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling action.
-      - 'specifying action "\$/actions/post-comment" in invalid format because
-        ref is missing'
-  .github/workflows/template-version-comment.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling actions.
-      - 'specifying action "\$/actions/(read-config|template-version)" in
-        invalid format because ref is missing'
-  .github/workflows/download-pipeline.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling actions.
-      - 'specifying action "\$/actions/(read-config|verify-offline-run)" in
-        invalid format because ref is missing'
-  .github/workflows/awstest.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling action.
-      - 'specifying action "\$/actions/read-config" in invalid format because
-        ref is missing'
-  .github/workflows/awsfulltest.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling actions.
-      - 'specifying action "\$/actions/(read-config|authorize-launch)" in
-        invalid format because ref is missing'
-  .github/workflows/release-announcements.yml:
-    ignore:
-      # Same '$/' gap as above, for this workflow's own sibling actions.
-      - 'specifying action "\$/actions/(read-config|announce-release)" in
-        invalid format because ref is missing'

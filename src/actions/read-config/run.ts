@@ -90,9 +90,8 @@ function logAndWriteSummary(rows: Row[]): Promise<void> {
   for (const row of rows) {
     // A file-sourced value is a contributor's own .nf-core.yml on a pull
     // request: JSON-encode it so a value containing a newline can't inject
-    // a workflow command into the log (same reasoning as run-nf-test.ts,
-    // plan-run and validate-patch). The summary table below is escaped for
-    // HTML separately; this is the log path, which needs its own encoding.
+    // a workflow command into the log. The summary table below is escaped
+    // for HTML separately; this is the log path, which needs its own encoding.
     core.info(`  ${row.setting} = ${JSON.stringify(row.raw)} (${row.source})`)
   }
 

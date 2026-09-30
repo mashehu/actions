@@ -33,9 +33,9 @@ interface GitApplyResult {
 /**
  * Runs `git apply <args>` and returns its captured output.
  *
- * JSON-encodes the args before logging, the same reasoning as
- * src/lib/run-nf-test.ts: it renders a newline in an untrusted value (the
- * patch path) as \n, so it can't inject a workflow command into the log.
+ * JSON-encodes the args before logging: it renders a newline in an untrusted
+ * value (the patch path) as \n, so it can't inject a workflow command into the
+ * log.
  * silent: true stops @actions/exec echoing its own unencoded command line,
  * which would otherwise reopen the same injection.
  */
