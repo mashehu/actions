@@ -84,7 +84,7 @@ jobs:
         uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
         with:
           inputs: '.github/workflows actions'
-          config: zizmor.yml
+          config: .github/zizmor.yml
           # Findings show as log annotations. Advanced Security upload stays
           # off so this job needs no extra permissions.
           advanced-security: 'false'

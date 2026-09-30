@@ -131,8 +131,8 @@ well-formed, applying patch.
 `@nf-core-bot fix linting` pull request comment command. It replaces a vendored
 workflow that ran a pull request's own lint hooks in the same job that held the
 bot's push credential: hook code the pull request defines could read that
-credential. This workflow never does that. See SECURITY.md for the trust
-boundary it follows.
+credential. This workflow never does that. See
+[SECURITY.md](.github/SECURITY.md) for the trust boundary it follows.
 
 ### Three jobs, one trust boundary
 
@@ -329,5 +329,5 @@ __tests__/                  Unit tests, mirroring src/
 hand, and CI fails if it is out of date. The bundle is not minified and has no
 sourcemap, so a pull request diff shows the actual code change under review.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to build, test, and add an
-action.
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for how to build, test, and add
+an action.

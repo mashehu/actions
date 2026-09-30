@@ -35907,8 +35907,8 @@ function warnUnknownCiKeys(config) {
 /**
  * Resolves 'config-file' against the workspace and rejects a path that
  * escapes it, so a caller can't read an arbitrary file on the runner
- * (SECURITY.md's trust boundary: this repo reads only what it's told to,
- * from where it's told to).
+ * (.github/SECURITY.md's trust boundary: this repo reads only what it's told
+ * to, from where it's told to).
  */
 function resolveConfigPath(workspace, configFileInput) {
     if (isAbsolute(configFileInput)) {

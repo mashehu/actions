@@ -3,10 +3,8 @@
 import commonjs from '@rollup/plugin-commonjs'
 import nodeResolve from '@rollup/plugin-node-resolve'
 import typescript from '@rollup/plugin-typescript'
-import { discoverActionEntries } from './src/lib/discover-entries.js'
+import { discoverActionEntries } from '../src/lib/discover-entries.js'
 
-// script/package.mjs checks for an empty result before invoking Rollup:
-// Rollup's CLI rejects a config that resolves to an empty array.
 const entries = discoverActionEntries('src/actions')
 
 // dist/ has no package.json of its own, so Node would otherwise infer the
@@ -32,7 +30,7 @@ const config = entries.map(({ name, entry }) => ({
   output: {
     file: `actions/${name}/dist/index.js`,
     format: 'es'
-    // No sourcemap, no minification: dist/ is committed, see CONTRIBUTING.md.
+    // No sourcemap, no minification: dist/ is committed, see .github/CONTRIBUTING.md.
   },
   // noCheck: tsc --noEmit (npm run type-check) owns type-checking, not Rollup.
   plugins: [
