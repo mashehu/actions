@@ -24,7 +24,7 @@
     "format:write": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit -p __tests__/tsconfig.json",
+    "type-check": "tsc --noEmit",
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest",
     "test:coverage": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest --coverage",
     "package": "rimraf -g 'actions/*/dist' && node script/package.mjs",
@@ -77,7 +77,8 @@
   "jest": {
     "clearMocks": true,
     "collectCoverageFrom": [
-      "./src/**"
+      "./src/**",
+      "!**/*.test.ts"
     ],
     "coverageDirectory": "./coverage",
     "coveragePathIgnorePatterns": [
@@ -108,7 +109,7 @@
       "^.+\\.ts$": [
         "ts-jest",
         {
-          "tsconfig": "__tests__/tsconfig.json",
+          "tsconfig": "tsconfig.json",
           "useESM": true
         }
       ]

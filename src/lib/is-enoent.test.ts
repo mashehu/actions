@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import { isEnoent } from '../../src/lib/is-enoent.js'
+import { isEnoent } from './is-enoent.js'
 
 describe('isEnoent', () => {
   it('recognizes a real fs ENOENT error', () => {

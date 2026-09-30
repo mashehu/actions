@@ -1,8 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import {
-  DEFAULT_MAX_SIZE_BYTES,
-  parseMaxSizeBytes
-} from '../../src/actions/validate-patch/args.js'
+import { DEFAULT_MAX_SIZE_BYTES, parseMaxSizeBytes } from './args.js'
 
 describe('parseMaxSizeBytes', () => {
   it('parses a positive integer', () => {

@@ -31,7 +31,7 @@ jest.unstable_mockModule('@actions/core', () => ({
   summary
 }))
 
-const { run } = await import('../../src/actions/read-config/run.js')
+const { run } = await import('./run.js')
 
 function outputValues(): Record<string, string> {
   const result: Record<string, string> = {}

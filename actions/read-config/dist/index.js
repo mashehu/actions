@@ -35633,7 +35633,7 @@ async function writeSummaryBestEffort() {
 
 // The settings registry. One entry per setting. Add a setting by adding a
 // row here: action.yml, defaults and the resolver all read from this list.
-// The drift test in __tests__/read-config checks action.yml against it.
+// action-yml-drift.test.ts checks action.yml against it.
 // Infers each row against its own `kind`, so a mismatched default (for
 // example `kind: 'number'` with a string default) fails type-check instead
 // of widening away into the `SettingDef[]` union below.

@@ -321,7 +321,7 @@ actions/<name>/action.yml   Action metadata: runs.using: node24, runs.main: dist
 actions/<name>/dist/        Committed, built bundle for that action
 src/actions/<name>/         TypeScript source for that action's entry point
 src/lib/                    Shared code used by more than one action
-__tests__/                  Unit tests, mirroring src/
+src/**/*.test.ts            Unit tests, next to the code they test
 .github/workflows/          Reusable workflows pipelines call, plus this repo's own CI
 ```
 

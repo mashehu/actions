@@ -41,7 +41,7 @@ the updated `actions/*/dist/index.js` files onto that branch yourself.
    directory.
 3. Add `actions/<name>/action.yml` with the action's inputs, outputs, and
    `runs: using: node24, main: dist/index.js`.
-4. Add tests under `__tests__/`, mirroring the path under `src/`.
+4. Add tests next to the code they test, as `<file>.test.ts`.
 5. Run `npm run package` to build `actions/<name>/dist/index.js`, and commit it
    together with the source.
 

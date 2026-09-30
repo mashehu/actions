@@ -19,9 +19,9 @@ export default tseslint.config(
     }
   },
   {
-    // Type-aware rules for the real source. Kept off build scripts and
-    // tests so they don't need a tsconfig project of their own.
+    // Type-aware rules for the real source, not build scripts or tests.
     files: ['src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
     extends: [
       tseslint.configs.strictTypeChecked,
       tseslint.configs.stylisticTypeChecked
@@ -34,7 +34,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ['__tests__/**/*.ts'],
+    files: ['**/*.test.ts'],
     extends: [jest.configs['flat/recommended']]
   },
   eslintConfigPrettier

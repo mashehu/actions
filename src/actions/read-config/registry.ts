@@ -1,6 +1,6 @@
 // The settings registry. One entry per setting. Add a setting by adding a
 // row here: action.yml, defaults and the resolver all read from this list.
-// The drift test in __tests__/read-config checks action.yml against it.
+// action-yml-drift.test.ts checks action.yml against it.
 
 export type ValueKind = 'string' | 'string-list' | 'number' | 'boolean'
 

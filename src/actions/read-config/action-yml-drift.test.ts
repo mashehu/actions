@@ -2,10 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from '@jest/globals'
 import { parse } from 'yaml'
-import {
-  DEFAULT_CONFIG_FILE,
-  SETTINGS
-} from '../../src/actions/read-config/registry.js'
+import { DEFAULT_CONFIG_FILE, SETTINGS } from './registry.js'
 
 interface ActionYaml {
   inputs?: Record<string, { default?: unknown }>
@@ -14,7 +11,7 @@ interface ActionYaml {
 
 const actionYmlPath = join(
   import.meta.dirname,
-  '../../actions/read-config/action.yml'
+  '../../../actions/read-config/action.yml'
 )
 const actionYaml = parse(readFileSync(actionYmlPath, 'utf8')) as ActionYaml
 

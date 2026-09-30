@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import { assertPositiveInteger } from '../../src/lib/positive-integer.js'
+import { assertPositiveInteger } from './positive-integer.js'
 
 describe('assertPositiveInteger', () => {
   it('accepts a positive integer', () => {

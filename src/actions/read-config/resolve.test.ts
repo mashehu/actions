@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals'
 import { parseDocument } from 'yaml'
-import type { SettingDef } from '../../src/actions/read-config/registry.js'
-import {
-  defineSetting,
-  SETTINGS
-} from '../../src/actions/read-config/registry.js'
+import type { SettingDef } from './registry.js'
+import { defineSetting, SETTINGS } from './registry.js'
 
 const getInput = jest.fn<(name: string) => string>()
 const info = jest.fn()
@@ -17,7 +14,7 @@ jest.unstable_mockModule('@actions/core', () => ({
 }))
 
 const { getAtPath, resolveSetting, warnUnknownCiKeys } =
-  await import('../../src/actions/read-config/resolve.js')
+  await import('./resolve.js')
 
 /** Looks up a real registry entry by output name, so these tests can't drift from registry.ts. */
 function settingByOutput(output: string): SettingDef {

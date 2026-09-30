@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import { parseNumstat } from '../../src/actions/validate-patch/numstat.js'
+import { parseNumstat } from './numstat.js'
 
 describe('parseNumstat', () => {
   it('parses one entry per line', () => {
