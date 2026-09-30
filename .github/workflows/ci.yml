@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version-file: .node-version
+          node-version-file: package.json
           cache: npm
 
       - name: Install dependencies
@@ -48,7 +48,7 @@ jobs:
       - name: Build action bundles
         run: npm run package
 
-      # dist/ is committed, see CONTRIBUTING.md. git status also catches an
+      # dist/ is committed, see .github/CONTRIBUTING.md. git status also catches an
       # untracked dist/ (a new action whose bundle was never committed).
       - name: Check that committed bundles are up to date
         run: |

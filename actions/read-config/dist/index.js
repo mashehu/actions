@@ -35633,7 +35633,7 @@ async function writeSummaryBestEffort() {
 
 // The settings registry. One entry per setting. Add a setting by adding a
 // row here: action.yml, defaults and the resolver all read from this list.
-// The drift test in __tests__/read-config checks action.yml against it.
+// action-yml-drift.test.ts checks action.yml against it.
 // Infers each row against its own `kind`, so a mismatched default (for
 // example `kind: 'number'` with a string default) fails type-check instead
 // of widening away into the `SettingDef[]` union below.
@@ -35907,8 +35907,8 @@ function warnUnknownCiKeys(config) {
 /**
  * Resolves 'config-file' against the workspace and rejects a path that
  * escapes it, so a caller can't read an arbitrary file on the runner
- * (SECURITY.md's trust boundary: this repo reads only what it's told to,
- * from where it's told to).
+ * (.github/SECURITY.md's trust boundary: this repo reads only what it's told
+ * to, from where it's told to).
  */
 function resolveConfigPath(workspace, configFileInput) {
     if (isAbsolute(configFileInput)) {

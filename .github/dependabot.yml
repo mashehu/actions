@@ -35,7 +35,7 @@ updates:
       # The action runtime is node24, set by 'runs: using: node24' in every
       # action.yml. Types for a later Node would let an API that node24 does
       # not have pass type-check and then fail inside a pipeline's job. Raise
-      # this only together with the runtime, .node-version and engines.node.
+      # this only together with the runtime and engines.node.
       - dependency-name: '@types/node'
         update-types:
           - version-update:semver-major

@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import { encodeOutput } from '../../src/lib/encode-output.js'
+import { encodeOutput } from './encode-output.js'
 
 describe('encodeOutput', () => {
   it('passes a string through unchanged', () => {

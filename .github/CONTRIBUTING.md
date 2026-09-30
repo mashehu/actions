@@ -23,7 +23,7 @@ the coverage summary and the `dist/` freshness check.
 
 ## dist/ is committed
 
-See [README.md](./README.md#layout) for why. Never edit a file under
+See [README.md](../README.md#layout) for why. Never edit a file under
 `actions/*/dist/` by hand: after changing anything under `src/`, run
 `npm run package` and commit the result.
 
@@ -41,12 +41,12 @@ the updated `actions/*/dist/index.js` files onto that branch yourself.
    directory.
 3. Add `actions/<name>/action.yml` with the action's inputs, outputs, and
    `runs: using: node24, main: dist/index.js`.
-4. Add tests under `__tests__/`, mirroring the path under `src/`.
+4. Add tests next to the code they test, as `<file>.test.ts`.
 5. Run `npm run package` to build `actions/<name>/dist/index.js`, and commit it
    together with the source.
 
-`rollup.config.ts` discovers every `src/actions/*/index.ts` automatically; no
-build config changes are needed for a new action.
+`script/rollup.config.ts` discovers every `src/actions/*/index.ts`
+automatically; no build config changes are needed for a new action.
 
 ## Conventions
 

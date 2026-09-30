@@ -18,13 +18,13 @@
     "actions"
   ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": "24.x"
   },
   "scripts": {
     "format:write": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit -p tsconfig.test.json",
+    "type-check": "tsc --noEmit",
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest",
     "test:coverage": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest --coverage",
     "package": "rimraf -g 'actions/*/dist' && node script/package.mjs",
@@ -57,5 +57,63 @@
     "tslib": "^2.8.1",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.67.0"
+  },
+  "prettier": {
+    "printWidth": 80,
+    "tabWidth": 2,
+    "useTabs": false,
+    "semi": false,
+    "singleQuote": true,
+    "quoteProps": "as-needed",
+    "jsxSingleQuote": false,
+    "trailingComma": "none",
+    "bracketSpacing": true,
+    "bracketSameLine": true,
+    "arrowParens": "always",
+    "proseWrap": "always",
+    "htmlWhitespaceSensitivity": "css",
+    "endOfLine": "lf"
+  },
+  "jest": {
+    "clearMocks": true,
+    "collectCoverageFrom": [
+      "./src/**",
+      "!**/*.test.ts"
+    ],
+    "coverageDirectory": "./coverage",
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/dist/"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov"
+    ],
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
+    "moduleFileExtensions": [
+      "ts",
+      "js"
+    ],
+    "preset": "ts-jest",
+    "resolver": "ts-jest-resolver",
+    "testMatch": [
+      "**/*.test.ts"
+    ],
+    "testPathIgnorePatterns": [
+      "/dist/",
+      "/node_modules/"
+    ],
+    "transform": {
+      "^.+\\.ts$": [
+        "ts-jest",
+        {
+          "tsconfig": "tsconfig.json",
+          "useESM": true
+        }
+      ]
+    },
+    "verbose": true
   }
 }

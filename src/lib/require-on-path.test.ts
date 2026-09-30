@@ -4,7 +4,7 @@ const which = jest.fn<() => Promise<string>>()
 
 jest.unstable_mockModule('@actions/io', () => ({ which }))
 
-const { requireOnPath } = await import('../../src/lib/require-on-path.js')
+const { requireOnPath } = await import('./require-on-path.js')
 
 describe('requireOnPath', () => {
   it('resolves when the tool is on PATH', async () => {

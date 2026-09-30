@@ -8,8 +8,7 @@ jest.unstable_mockModule('@actions/core', () => ({
   warning
 }))
 
-const { writeSummaryBestEffort } =
-  await import('../../src/lib/write-summary.js')
+const { writeSummaryBestEffort } = await import('./write-summary.js')
 
 describe('writeSummaryBestEffort', () => {
   it('resolves normally when the summary writes', async () => {

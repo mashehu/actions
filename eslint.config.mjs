@@ -11,8 +11,7 @@ export default tseslint.config(
     ignores: ['actions/*/dist/**', 'coverage/**']
   },
   {
-    // Base rules for every JS/TS file, including root config files
-    // (rollup.config.ts, jest.config.js, this file).
+    // Base rules for every JS/TS file, including script/* and this file.
     files: ['**/*.{js,mjs,ts}'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
@@ -20,9 +19,9 @@ export default tseslint.config(
     }
   },
   {
-    // Type-aware rules for the real source. Kept off root config files and
-    // tests so they don't need a tsconfig project of their own.
+    // Type-aware rules for the real source, not build scripts or tests.
     files: ['src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
     extends: [
       tseslint.configs.strictTypeChecked,
       tseslint.configs.stylisticTypeChecked
@@ -35,7 +34,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ['__tests__/**/*.ts'],
+    files: ['**/*.test.ts'],
     extends: [jest.configs['flat/recommended']]
   },
   eslintConfigPrettier

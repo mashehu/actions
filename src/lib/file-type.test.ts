@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import { describeType, type StatLike } from '../../src/lib/file-type.js'
+import { describeType, type StatLike } from './file-type.js'
 
 function statOf(kind: keyof StatLike): StatLike {
   const base: StatLike = {

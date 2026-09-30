@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import { defineSetting } from '../../src/actions/read-config/registry.js'
+import { defineSetting } from './registry.js'
 
 describe('defineSetting infers each entry against its own kind', () => {
   it('is exercised by the type-check below; this keeps Jest from reporting an empty suite', () => {

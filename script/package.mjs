@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 
-// Builds every action under src/actions/*, or exits cleanly if there is
-// nothing to build.
-//
-// Rollup's CLI rejects a config file that resolves to an empty array, so
-// this checks first and only invokes Rollup when there is real work to do.
+// Builds every action under src/actions/*.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
@@ -15,16 +11,10 @@ import { discoverActionEntries } from '../src/lib/discover-entries.ts'
 // running the script from another directory can't change the outcome.
 const repoRoot = join(import.meta.dirname, '..')
 const srcDir = join(repoRoot, 'src/actions')
-const rollupConfig = join(repoRoot, 'rollup.config.ts')
+const rollupConfig = join(repoRoot, 'script/rollup.config.ts')
 const rollupBin = join(repoRoot, 'node_modules/rollup/dist/bin/rollup')
 
 const subdirs = listSubdirectories(srcDir)
-
-if (subdirs.length === 0) {
-  // No subdirectories at all: nothing to build, exit clean.
-  console.log('No actions found under src/actions. Nothing to build.')
-  process.exit(0)
-}
 
 const entries = discoverActionEntries(srcDir)
 const buildable = new Set(entries.map((entry) => entry.name))

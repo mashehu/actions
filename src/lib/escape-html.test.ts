@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals'
-import { escapeHtml } from '../../src/lib/escape-html.js'
+import { escapeHtml } from './escape-html.js'
 
 describe('escapeHtml', () => {
   it('escapes angle brackets and ampersands', () => {

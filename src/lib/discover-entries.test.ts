@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals'
-import { discoverActionEntries } from '../src/lib/discover-entries.js'
+import { discoverActionEntries } from './discover-entries.js'
 
 describe('discoverActionEntries', () => {
   let fixtureDir: string

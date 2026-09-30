@@ -4,7 +4,7 @@ const setFailed = jest.fn()
 
 jest.unstable_mockModule('@actions/core', () => ({ setFailed }))
 
-const { runAction } = await import('../../src/lib/run-action.js')
+const { runAction } = await import('./run-action.js')
 
 describe('runAction', () => {
   it('does not fail the action when run succeeds', async () => {

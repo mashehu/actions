@@ -17,7 +17,7 @@ name: fix-linting
 #                  'prepare-fix' produced, then applies, commits, and pushes
 #                  it with the bot's own token. Never runs pull request code.
 #
-# See SECURITY.md for the trust boundary this design follows.
+# See .github/SECURITY.md for the trust boundary this design follows.
 on:
   workflow_call:
     secrets:

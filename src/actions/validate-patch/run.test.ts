@@ -36,7 +36,7 @@ jest.unstable_mockModule('@actions/core', () => ({
   summary
 }))
 
-const { run } = await import('../../src/actions/validate-patch/run.js')
+const { run } = await import('./run.js')
 
 // These tests run real git against a throwaway repository, because git's own
 // behaviour on a real tree is what is under test. Ignore the developer's
