@@ -98,7 +98,7 @@ jobs:
   verify:
     name: Verify release
     needs: prepare
-    uses: ./.github/workflows/ci.yml
+    uses: $/.github/workflows/ci.yml
 
   tag:
     name: Tag release

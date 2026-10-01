@@ -8,3 +8,8 @@ paths:
       # actionlint recognises '$/'.
       - 'specifying action "\$/actions/(read-config|validate-patch)" in invalid
         format because ref is missing'
+  .github/workflows/release.yml:
+    ignore:
+      # Same '$/' gap as above, for the reusable workflow call to ci.yml.
+      - 'reusable workflow call "\$/\.github/workflows/ci\.yml" at "uses" is not
+        following the format'
