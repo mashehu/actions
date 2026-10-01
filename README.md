@@ -283,10 +283,11 @@ mid-push, which could otherwise fail with a non-fast-forward push.
 ### Referencing the sibling actions
 
 `fix-linting.yml` calls `read-config` and `validate-patch` with GitHub's `$/`
-self-repository syntax, for example `uses: $/actions/validate-patch`. `$/`
-resolves to this repo at the exact commit already running, with no separate tag
-lookup. A plain `owner/repo/path@v1` reference is re-resolved each time a job
-starts, so a release that moves `v1` mid-run could mix commits within one run.
+self-repository syntax, for example `uses: $/actions/validate-patch`, and
+`release.yml` calls `ci.yml` the same way. `$/` resolves to this repo at the
+exact commit already running, with no separate tag lookup. A plain
+`owner/repo/path@v1` reference is re-resolved each time a job starts, so a
+release that moves `v1` mid-run could mix commits within one run.
 
 `$/` requires Actions runner 2.336.0 or later and does not exist on GitHub
 Enterprise Server. GitHub-hosted runners (`ubuntu-latest`, which every job here
