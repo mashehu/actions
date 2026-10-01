@@ -2,25 +2,15 @@ import { readFileSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import * as core from '@actions/core'
 import { type Document, parseDocument } from 'yaml'
-import { encodeOutput } from '../../lib/encode-output.js'
 import { escapeHtml } from '../../lib/escape-html.js'
 import { isEnoent } from '../../lib/is-enoent.js'
 import { writeSummaryBestEffort } from '../../lib/write-summary.js'
-import { DEFAULT_CONFIG_FILE, SETTINGS } from './registry.js'
-import {
-  resolveSetting,
-  warnIgnoredCiBlock,
-  type SettingValue,
-  type Source
-} from './resolve.js'
+import { DEFAULT_CONFIG_FILE, METADATA } from './registry.js'
+import { resolveMetadata } from './resolve.js'
 
 interface Row {
-  setting: string
-  /** Resolved value, exactly as it will be encoded for setOutput(). */
+  output: string
   value: string
-  /** Same value, before output-encoding. Only used for the log line below. */
-  raw: SettingValue
-  source: Source
 }
 
 /**
@@ -54,8 +44,8 @@ function resolveConfigPath(workspace: string, configFileInput: string): string {
 }
 
 /**
- * Reads and parses the config file, keeping the yaml `Document` so a
- * 'string' setting can recover a scalar's original source text (see
+ * Reads and parses the config file, keeping the yaml `Document` so an
+ * unquoted scalar's original source text can be recovered (see
  * resolve.ts). Undefined if the file does not exist.
  */
 function loadConfig(configPath: string): Document | undefined {
@@ -65,7 +55,7 @@ function loadConfig(configPath: string): Document | undefined {
   } catch (error) {
     if (isEnoent(error)) {
       core.warning(
-        `No config file found at '${configPath}'. Every setting read from it resolves to an empty string.`
+        `No config file found at '${configPath}'. Every output resolves to an empty string.`
       )
       return undefined
     }
@@ -86,34 +76,31 @@ function loadConfig(configPath: string): Document | undefined {
 }
 
 function logAndWriteSummary(rows: Row[]): Promise<void> {
-  core.info('Resolved CI settings:')
+  core.info('Pipeline metadata from .nf-core.yml:')
   for (const row of rows) {
-    // A file-sourced value is a contributor's own .nf-core.yml on a pull
-    // request, and an input-sourced one can come from the calling stub,
-    // which a pull request can also change: JSON-encode it so a value
-    // containing a newline can't inject a workflow command into the log
-    // (same reasoning as run-nf-test.ts, plan-run and validate-patch). The
-    // summary table below is escaped for HTML separately; this is the log
-    // path, which needs its own encoding.
-    core.info(`  ${row.setting} = ${JSON.stringify(row.raw)} (${row.source})`)
+    // Every value is a contributor's own .nf-core.yml on a pull request:
+    // JSON-encode it so a value containing a newline can't inject a
+    // workflow command into the log (same reasoning as run-nf-test.ts,
+    // plan-run and validate-patch). The summary table below is escaped for
+    // HTML separately; this is the log path, which needs its own encoding.
+    core.info(`  ${row.output} = ${JSON.stringify(row.value)}`)
   }
 
-  core.summary.addHeading('read-config: resolved settings', 3).addTable([
+  core.summary.addHeading('read-config: pipeline metadata', 3).addTable([
     [
-      { data: 'Setting', header: true },
-      { data: 'Value', header: true },
-      { data: 'Source', header: true }
+      { data: 'Output', header: true },
+      { data: 'Value', header: true }
     ],
-    // 'setting' and 'source' are internal, fixed values. 'value' can come
-    // from the pipeline's .nf-core.yml, which on a pull request is the
-    // contributor's version of that file: addTable() writes cell data as
-    // raw HTML, unescaped, so it must be escaped here.
-    ...rows.map((row) => [row.setting, escapeHtml(row.value), row.source])
+    // 'output' is an internal, fixed value. 'value' comes from the
+    // pipeline's .nf-core.yml, which on a pull request is the contributor's
+    // version of that file: addTable() writes cell data as raw HTML,
+    // unescaped, so it must be escaped here.
+    ...rows.map((row) => [row.output, escapeHtml(row.value)])
   ])
   return writeSummaryBestEffort()
 }
 
-/** Resolves every registry setting and publishes it as an action output and a summary table row. */
+/** Reads every registry value and publishes it as an action output and a summary table row. */
 export async function run(): Promise<void> {
   const configFileInput = core.getInput('config-file') || DEFAULT_CONFIG_FILE
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd()
@@ -121,23 +108,17 @@ export async function run(): Promise<void> {
 
   const doc = loadConfig(configPath)
   const config: unknown = doc?.toJS()
-  warnIgnoredCiBlock(config)
 
-  // Resolve every setting before writing any output. If one setting fails
-  // to resolve, this throws before the loop below writes anything, so a
+  // Resolve every value before writing any output. If one fails to
+  // resolve, this throws before the loop below writes anything, so a
   // caller never sees a partial set of outputs.
-  const rows: Row[] = SETTINGS.map((setting) => {
-    const resolved = resolveSetting(setting, config, doc)
-    return {
-      setting: setting.output,
-      value: encodeOutput(resolved.value),
-      raw: resolved.value,
-      source: resolved.source
-    }
-  })
+  const rows: Row[] = METADATA.map((def) => ({
+    output: def.output,
+    value: resolveMetadata(def, config, doc)
+  }))
 
   for (const row of rows) {
-    core.setOutput(row.setting, row.value)
+    core.setOutput(row.output, row.value)
   }
 
   await logAndWriteSummary(rows)

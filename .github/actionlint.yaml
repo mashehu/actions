@@ -6,8 +6,8 @@ paths:
       # action syntax (GA July 2026), and rejects it as a ref-less format.
       # See README.md's "Referencing the sibling actions". Remove this once
       # actionlint recognises '$/'.
-      - 'specifying action "\$/actions/(read-config|validate-patch)" in invalid
-        format because ref is missing'
+      - 'specifying action "\$/actions/validate-patch" in invalid format because
+        ref is missing'
   .github/workflows/release.yml:
     ignore:
       # Same '$/' gap as above, for the reusable workflow call to ci.yml.

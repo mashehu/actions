@@ -1,95 +1,27 @@
-name: Read CI config
+name: Read pipeline metadata
 description: >-
-  Resolves nf-core pipeline CI settings from an action input, then a built-in
-  default, and exposes them as outputs. Also reads the pipeline metadata that
-  nf-core/tools writes to .nf-core.yml (template version, repository type,
-  pipeline name). CI settings are never read from .nf-core.yml.
+  Reads the pipeline metadata nf-core/tools writes to .nf-core.yml (the template
+  version and the pipeline name) and exposes it as outputs. CI settings are not
+  read here: they are typed inputs on each reusable workflow.
 author: nf-core
 
 inputs:
   config-file:
     description: >-
-      Path to the pipeline's .nf-core.yml, relative to the workspace, for the
-      read-only metadata outputs. An absolute path is rejected.
+      Path to the pipeline's .nf-core.yml, relative to the workspace. An
+      absolute path is rejected.
     required: false
     default: .nf-core.yml
-  nf-test-version:
-    description: >-
-      nf-test version to use. Overrides the built-in default.
-    required: false
-  nextflow-versions:
-    description: >-
-      Nextflow versions to test against, as a JSON array of strings, for example
-      '["24.10.0","latest-everything"]'. Overrides the built-in default.
-    required: false
-  profiles:
-    description: >-
-      Container/environment profiles to test, as a JSON array of strings, for
-      example '["docker","singularity"]'. Overrides the built-in default.
-    required: false
-  max-shards:
-    description: >-
-      Maximum number of nf-test shards, as a JSON number. Overrides the built-in
-      default.
-    required: false
-  nf-test-workdir:
-    description: >-
-      Working directory for nf-test. Overrides the built-in default.
-    required: false
-  runner:
-    description: >-
-      GitHub Actions runner label to test on. Overrides the built-in default.
-    required: false
-  nextflow-lint:
-    description: >-
-      Whether to run the Nextflow strict-syntax lint, as 'true' or 'false'.
-      Overrides the built-in default (false).
-    required: false
-  awsfulltest-required-approvals:
-    description: >-
-      Number of distinct, trusted approvals required to launch the AWS full
-      test, as a JSON number. Overrides the built-in default (2).
-    required: false
 
 outputs:
-  nf-test-version:
-    description: Resolved nf-test version, as a plain string.
-  nextflow-versions:
-    description:
-      Resolved Nextflow versions, as a JSON array of strings. Use fromJSON() to
-      build a matrix.
-  profiles:
-    description:
-      Resolved profiles, as a JSON array of strings. Use fromJSON() to build a
-      matrix.
-  max-shards:
-    description:
-      Resolved maximum shard count, as a JSON number. Use fromJSON() to compare
-      or use in a matrix.
-  nf-test-workdir:
-    description: Resolved nf-test working directory, as a plain string.
-  runner:
-    description: Resolved runner label, as a plain string.
-  nextflow-lint:
-    description: >-
-      Whether to run the Nextflow strict-syntax lint, as a JSON boolean. Use
-      fromJSON() in an 'if:' condition.
-  awsfulltest-required-approvals:
-    description:
-      Resolved required-approvals count, as a JSON number. Use fromJSON() to
-      compare.
   nf-core-version:
     description: >-
       nf-core template version from 'nf_core_version' in .nf-core.yml, as a
-      plain string. Empty string if not present. Not configurable: read-only.
-  repository-type:
-    description: >-
-      Repository type from 'repository_type' in .nf-core.yml, as a plain string.
-      Empty string if not present. Not configurable: read-only.
+      plain string. Empty string if not present.
   pipeline-name:
     description: >-
       Pipeline name from 'template.name' in .nf-core.yml, as a plain string.
-      Empty string if not present. Not configurable: read-only.
+      Empty string if not present.
 
 runs:
   using: node24

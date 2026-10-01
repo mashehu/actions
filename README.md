@@ -12,66 +12,41 @@ Today this repo provides one workflow,
 [`fix-linting.yml`](#the-fix-lintingyml-workflow). More of the pipeline
 template's workflows will move here, one at a time.
 
-## Configuration precedence
+## CI settings
 
-Every setting a shared workflow or action reads resolves in this order:
+Every CI setting is a typed `workflow_call` input, declared with its default on
+each reusable workflow that uses it. A stub sets one with `with:` only to
+override that default; CI settings are never read from the pipeline's
+`.nf-core.yml`.
 
-1. The workflow `with:` input, if the calling pipeline set one.
-2. The `.nf-core.yml` file in the calling pipeline's repo, if it sets one.
-3. A built-in default in this repo.
+| Input               | Type                | Default                           | Declared by       |
+| ------------------- | ------------------- | --------------------------------- | ----------------- |
+| `nextflow-versions` | string (JSON array) | `["25.10.4","latest-everything"]` | `fix-linting.yml` |
 
-Falling back to the built-in default logs a warning in the Actions run, so a
-pipeline maintainer can see when they are relying on a default instead of an
-explicit choice.
+`workflow_call` has no list type, so a list is a JSON array in a string: quote
+it on the stub. A `number` or `boolean` input needs no quoting, and GitHub
+checks its type before the run starts.
 
-`.nf-core.yml` also records the pipeline's template version. Code in this repo
-reads that version and can change behaviour for older pipelines instead of
-breaking them outright.
+When a setting is shared by more than one workflow, its default is written out
+in each.
+[`src/workflow-input-defaults.test.ts`](src/workflow-input-defaults.test.ts)
+fails if those copies differ, so change a shared default in every workflow that
+declares it.
 
-## The `ci:` config block
+## The `read-config` action
 
-The [`read-config`](actions/read-config) action resolves CI settings and exposes
-them as outputs for later steps and reusable workflows. It reads a `ci:` block
-from the pipeline's `.nf-core.yml`. That block does not exist by default; a
-pipeline adds it only to override a setting. For example:
+The [`read-config`](actions/read-config) action reads the pipeline metadata
+nf-core/tools itself writes to `.nf-core.yml` and exposes it as outputs:
+`nf-core-version` (from `nf_core_version`) and `pipeline-name` (from
+`template.name`). No workflow here uses it yet; it is for the template workflows
+still to move here that need the pipeline's tools version or name.
 
-```yaml
-# .nf-core.yml in a pipeline repo
-nf_core_version: '4.0.3'
-repository_type: pipeline
-template:
-  name: rnaseq
-  org: nf-core
-  version: '3.27.0dev'
-ci:
-  nextflow_versions: ['24.10.0', 'latest-everything']
-```
-
-Omitting a key under `ci:` is normal. It means the pipeline follows the central
-default for that setting, and `read-config` logs a warning in the Actions run
-naming the setting and the default used, so a maintainer can see where the value
-came from.
-
-Each setting follows the same three-step order as
-[Configuration precedence](#configuration-precedence) above: the action input
-first, then the value at that setting's path under `ci:`, then the built-in
-default.
-
-A setting whose value is a list, a number, or a boolean is available on the
-input side and the output side as JSON, for example
-`'["docker","singularity"]'`, `'12'`, or `'true'`, so a calling workflow can use
-`fromJSON()` to build a matrix or gate an `if:` condition.
-
-`read-config` also exposes `nf-core-version`, `repository-type`, and
-`pipeline-name`, read from the pipeline's existing schema outside `ci:`. These
-have no built-in default: if a pipeline's `.nf-core.yml` does not set them, the
-output is an empty string and `read-config` logs a warning.
-
-**Do not rely on `ci:` yet.** nf-core/tools rebuilds `.nf-core.yml` from the
-fields it knows, so `nf-core pipelines sync` or `bump-version` drops the `ci:`
-block. [nf-core/tools#4453](https://github.com/nf-core/tools/pull/4453) fixes
-this; until it is released, a pipeline that sets any `ci:` key can lose it on
-the next sync.
+Its one input, `config-file`, defaults to `.nf-core.yml` and must stay inside
+the workspace. Neither output has a default: if `.nf-core.yml` does not set it,
+the output is an empty string and `read-config` logs a warning, so a caller must
+guard the value before using it. An unquoted version such as
+`nf_core_version: 2.10` resolves to `2.10` as written, not to the number `2.1`
+YAML parses it as.
 
 ## The `validate-patch` action
 
@@ -202,14 +177,13 @@ reaction and no explanation.
 
 ### Configuration
 
-`prepare-fix` reads `.nf-core.yml` before checking out the pull request, so a
-setting used to run the pull request's own hooks comes from the repository's own
-default branch, not from the pull request under test. Today that is one value:
-the Nextflow version, taken from `read-config`'s existing `nextflow-versions`
-output (the first configured version). `prek` itself needs no separate version
-setting: its action pin already fixes a version, and every hook's own version is
-already pinned in the pipeline's own `.pre-commit-config.yaml`. Nothing new was
-added to `.nf-core.yml` for this workflow.
+One input: `nextflow-versions` (see [CI settings](#ci-settings)). The lint hooks
+run with its first entry. An `issue_comment` run always reads the stub from the
+repository's default branch, so the version used to run the pull request's own
+hooks never comes from the pull request under test. `prek` itself needs no
+separate version setting: its action pin already fixes a version, and every
+hook's own version is already pinned in the pipeline's own
+`.pre-commit-config.yaml`.
 
 ### Pipeline stub
 
@@ -282,12 +256,12 @@ mid-push, which could otherwise fail with a non-fast-forward push.
 
 ### Referencing the sibling actions
 
-`fix-linting.yml` calls `read-config` and `validate-patch` with GitHub's `$/`
-self-repository syntax, for example `uses: $/actions/validate-patch`, and
-`release.yml` calls `ci.yml` the same way. `$/` resolves to this repo at the
-exact commit already running, with no separate tag lookup. A plain
-`owner/repo/path@v1` reference is re-resolved each time a job starts, so a
-release that moves `v1` mid-run could mix commits within one run.
+`fix-linting.yml` calls `validate-patch` with GitHub's `$/` self-repository
+syntax, for example `uses: $/actions/validate-patch`, and `release.yml` calls
+`ci.yml` the same way. `$/` resolves to this repo at the exact commit already
+running, with no separate tag lookup. A plain `owner/repo/path@v1` reference is
+re-resolved each time a job starts, so a release that moves `v1` mid-run could
+mix commits within one run.
 
 `$/` requires Actions runner 2.336.0 or later and does not exist on GitHub
 Enterprise Server. GitHub-hosted runners (`ubuntu-latest`, which every job here

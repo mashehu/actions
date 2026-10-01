@@ -23,13 +23,11 @@ on:
     inputs:
       nextflow-versions:
         description: >-
-          Nextflow versions, as a JSON array of strings, for example
-          '["25.10.4","latest-everything"]'. The lint hooks run with the first
-          entry. Pass the same value as the 'linting.yml' stub. Leave unset for
-          the built-in default (see README.md).
+          Nextflow versions, as a JSON array of strings. The lint hooks run with
+          the first entry. Pass the same value as the 'linting.yml' stub.
         type: string
         required: false
-        default: ''
+        default: '["25.10.4","latest-everything"]'
     secrets:
       BOT_TOKEN:
         description: >-
@@ -161,18 +159,11 @@ jobs:
       # 'gh pr checkout' below needs a clone to switch. The Nextflow version
       # comes from the 'nextflow-versions' input, which an 'issue_comment'
       # run always reads from the stub on the default branch, never from the
-      # pull request under test. Resolved before that checkout regardless,
-      # so nothing in this job reads it from pull request content.
+      # pull request under test.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Resolve CI configuration
-        id: read-config
-        uses: $/actions/read-config
-        with:
-          nextflow-versions: ${{ inputs.nextflow-versions }}
 
       - name: Checkout pull request
         id: pr
@@ -186,8 +177,7 @@ jobs:
       - name: Setup Nextflow
         uses: nf-core/setup-nextflow@v3
         with:
-          version:
-            ${{ fromJSON(steps.read-config.outputs.nextflow-versions)[0] }}
+          version: ${{ fromJSON(inputs.nextflow-versions)[0] }}
 
       # prek manages each hook's own environment; nothing here installs a
       # pipeline dependency beyond what its own .pre-commit-config.yaml asks

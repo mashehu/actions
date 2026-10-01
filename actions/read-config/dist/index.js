@@ -2474,11 +2474,77 @@ function requireRequest$1 () {
 	    }
 	  }
 
-	  onUpgrade (statusCode, headers, socket) {
+	  /**
+	   * @param {number|null} statusCode
+	   * @param {Buffer[]|null} headers
+	   * @param {import('node:stream').Duplex} socket
+	   * @param {string} [statusText]
+	   */
+	  onUpgrade (statusCode, headers, socket, statusText = '') {
+	    this.onFinally();
+
 	    assert(!this.aborted);
 	    assert(!this.completed);
 
-	    return this[kHandler].onUpgrade(statusCode, headers, socket)
+	    if (statusCode !== null) {
+	      this.#publishUpgradeHeaders(statusCode, headers, statusText);
+	    }
+
+	    const result = this[kHandler].onUpgrade(statusCode, headers, socket);
+
+	    if (!this.aborted) {
+	      this.completed = true;
+	      if (statusCode !== null) {
+	        this.#publishUpgradeTrailers();
+	      }
+	    }
+
+	    return result
+	  }
+
+	  /**
+	   * @param {number} statusCode
+	   * @param {import('node:http2').IncomingHttpHeaders} headers
+	   * @param {(headers: import('node:http2').IncomingHttpHeaders) => Buffer[]} parseHeaders
+	   * @param {string} [statusText]
+	   */
+	  onUpgradeResponse (statusCode, headers, parseHeaders, statusText = '') {
+	    assert(!this.aborted);
+	    assert(this.completed);
+
+	    if (channels.headers.hasSubscribers) {
+	      this.#publishUpgradeHeaders(statusCode, parseHeaders(headers), statusText);
+	    }
+	    this.#publishUpgradeTrailers();
+	  }
+
+	  /**
+	   * @param {Error} error
+	   */
+	  onUpgradeError (error) {
+	    assert(!this.aborted);
+	    assert(this.completed);
+
+	    if (channels.error.hasSubscribers) {
+	      channels.error.publish({ request: this, error });
+	    }
+	  }
+
+	  /**
+	   * @param {number} statusCode
+	   * @param {Buffer[]} headers
+	   * @param {string} statusText
+	   */
+	  #publishUpgradeHeaders (statusCode, headers, statusText) {
+	    if (channels.headers.hasSubscribers) {
+	      channels.headers.publish({ request: this, response: { statusCode, headers, statusText } });
+	    }
+	  }
+
+	  #publishUpgradeTrailers () {
+	    if (channels.trailers.hasSubscribers) {
+	      channels.trailers.publish({ request: this, trailers: [] });
+	    }
 	  }
 
 	  onComplete (trailers) {
@@ -9061,7 +9127,7 @@ function requireClientH1 () {
 	  }
 
 	  onUpgrade (head) {
-	    const { upgrade, client, socket, headers, statusCode } = this;
+	    const { upgrade, client, socket, headers, statusCode, statusText } = this;
 
 	    assert(upgrade);
 	    assert(client[kSocket] === socket);
@@ -9096,9 +9162,10 @@ function requireClientH1 () {
 	    client.emit('disconnect', client[kUrl], [client], new InformationalError('upgrade'));
 
 	    try {
-	      request.onUpgrade(statusCode, headers, socket);
-	    } catch (err) {
-	      util.destroy(socket, err);
+	      request.onUpgrade(statusCode, headers, socket, statusText);
+	    } catch (error) {
+	      util.errorRequest(client, request, error);
+	      util.destroy(socket, error);
 	    }
 
 	    client[kResume]();
@@ -9505,7 +9572,7 @@ function requireClientH1 () {
 
 	function clearIdleSocketValidation (socket) {
 	  if (socket[kIdleSocketValidationTimeout]) {
-	    clearTimeout(socket[kIdleSocketValidationTimeout]);
+	    clearImmediate(socket[kIdleSocketValidationTimeout]);
 	    socket[kIdleSocketValidationTimeout] = null;
 	  }
 
@@ -9514,15 +9581,23 @@ function requireClientH1 () {
 
 	function scheduleIdleSocketValidation (client, socket) {
 	  socket[kIdleSocketValidation] = 1;
-	  socket[kIdleSocketValidationTimeout] = setTimeout(() => {
+	  // Yield to the check phase (after poll) so unsolicited bytes / FIN / RST
+	  // already pending on this idle keep-alive socket are processed before the
+	  // next request is written (GHSA-35p6-xmwp-9g52).
+	  //
+	  // setTimeout(0) pays Node's ~1ms timer floor on every sequential reuse
+	  // (#5493). setImmediate avoids that, but an *unref'd* Immediate lets poll
+	  // block for ~500ms when the event loop is otherwise idle (#5600 / #5606).
+	  // A ref'd Immediate both keeps the pending request alive and makes poll
+	  // return immediately — the hybrid those issues asked for.
+	  socket[kIdleSocketValidationTimeout] = setImmediate(() => {
 	    socket[kIdleSocketValidationTimeout] = null;
 	    socket[kIdleSocketValidation] = 2;
 
 	    if (client[kSocket] === socket && !socket.destroyed) {
 	      client[kResume]();
 	    }
-	  }, 0);
-	  socket[kIdleSocketValidationTimeout].unref?.();
+	  });
 	}
 
 	/**
@@ -9671,12 +9746,22 @@ function requireClientH1 () {
 	  const socket = client[kSocket];
 	  clearIdleSocketValidation(socket);
 
-	  const abort = (err) => {
-	    if (request.aborted || request.completed) {
+	  /**
+	   * @param {Error} [error]
+	   */
+	  const abort = (error) => {
+	    if (request.aborted) {
 	      return
 	    }
 
-	    util.errorRequest(client, request, err || new RequestAbortedError());
+	    if (request.completed) {
+	      if (request.upgrade || request.method === 'CONNECT') {
+	        util.destroy(socket, new InformationalError('aborted'));
+	      }
+	      return
+	    }
+
+	    util.errorRequest(client, request, error || new RequestAbortedError());
 
 	    util.destroy(body);
 	    util.destroy(socket, new InformationalError('aborted'));
@@ -10134,6 +10219,7 @@ function requireClientH2 () {
 	hasRequiredClientH2 = 1;
 
 	const assert = require$$0$1;
+	const { errorMonitor } = require$$8;
 	const { pipeline } = require$$0$2;
 	const util = requireUtil$7();
 	const {
@@ -10208,6 +10294,15 @@ function requireClientH2 () {
 	  }
 
 	  return result
+	}
+
+	/**
+	 * @param {import('node:http2').IncomingHttpHeaders} headers
+	 * @returns {Buffer[]}
+	 */
+	function parseH2ResponseHeaders (headers) {
+	  const { [HTTP2_HEADER_STATUS]: _statusCode, ...realHeaders } = headers;
+	  return parseH2Headers(realHeaders)
 	}
 
 	async function connectH2 (client, socket) {
@@ -10430,22 +10525,32 @@ function requireClientH2 () {
 	  headers[HTTP2_HEADER_AUTHORITY] = host || `${hostname}${port ? `:${port}` : ''}`;
 	  headers[HTTP2_HEADER_METHOD] = method;
 
-	  const abort = (err) => {
-	    if (request.aborted || request.completed) {
+	  /**
+	   * @param {Error} [error]
+	   */
+	  const abort = (error) => {
+	    if (request.aborted) {
 	      return
 	    }
 
-	    err = err || new RequestAbortedError();
+	    if (request.completed) {
+	      if (method === 'CONNECT' && stream != null) {
+	        util.destroy(stream, error || new RequestAbortedError());
+	      }
+	      return
+	    }
 
-	    util.errorRequest(client, request, err);
+	    error = error || new RequestAbortedError();
+
+	    util.errorRequest(client, request, error);
 
 	    if (stream != null) {
-	      util.destroy(stream, err);
+	      util.destroy(stream, error);
 	    }
 
 	    // We do not destroy the socket as we can continue using the session
 	    // the stream get's destroyed and the session remains to create new streams
-	    util.destroy(body, err);
+	    util.destroy(body, error);
 	    client[kQueue][client[kRunningIdx]++] = null;
 	    client[kResume]();
 	  };
@@ -10464,25 +10569,57 @@ function requireClientH2 () {
 
 	  if (method === 'CONNECT') {
 	    session.ref();
-	    // We are already connected, streams are pending, first request
-	    // will create a new stream. We trigger a request to create the stream and wait until
-	    // `ready` event is triggered
 	    // We disabled endStream to allow the user to write to the stream
 	    stream = session.request(headers, { endStream: false, signal });
+	    let upgradeResponseFinished = false;
 
-	    if (stream.id && !stream.pending) {
-	      request.onUpgrade(null, null, stream);
-	      ++session[kOpenStreams];
-	      client[kQueue][client[kRunningIdx]++] = null;
-	    } else {
-	      stream.once('ready', () => {
+	    /**
+	     * @param {import('node:http2').IncomingHttpHeaders} headers
+	     */
+	    const onResponse = (headers) => {
+	      upgradeResponseFinished = true;
+	      stream.off(errorMonitor, onUpgradeError);
+	      request.onUpgradeResponse(Number(headers[HTTP2_HEADER_STATUS]), headers, parseH2ResponseHeaders);
+	    };
+
+	    /**
+	     * @param {Error} error
+	     */
+	    const onUpgradeError = (error) => {
+	      upgradeResponseFinished = true;
+	      stream.off('response', onResponse);
+	      request.onUpgradeError(error);
+	    };
+
+	    const onReady = () => {
+	      try {
 	        request.onUpgrade(null, null, stream);
-	        ++session[kOpenStreams];
-	        client[kQueue][client[kRunningIdx]++] = null;
-	      });
-	    }
+	      } catch (error) {
+	        stream.off('response', onResponse);
+	        abort(error);
+	        return
+	      }
+
+	      if (request.aborted) {
+	        return
+	      }
+
+	      stream.off('error', abort);
+	      stream.once(errorMonitor, onUpgradeError);
+	      client[kQueue][client[kRunningIdx]++] = null;
+	    };
+
+	    stream.once('response', onResponse);
+	    stream.once('error', abort);
+	    ++session[kOpenStreams];
+	    onReady();
 
 	    stream.once('close', () => {
+	      if (!upgradeResponseFinished && request.completed) {
+	        stream.off('response', onResponse);
+	        stream.off(errorMonitor, onUpgradeError);
+	        request.onUpgradeError(new InformationalError(`HTTP/2: "stream error" received - code ${stream.rstCode}`));
+	      }
 	      session[kOpenStreams] -= 1;
 	      if (session[kOpenStreams] === 0) session.unref();
 	    });
@@ -13142,6 +13279,7 @@ function requireRetryHandler () {
 	    this.end = null;
 	    this.etag = null;
 	    this.resume = null;
+	    this.headersSent = false;
 
 	    // Handle possible onConnect duplication
 	    this.handler.onConnect(reason => {
@@ -13152,6 +13290,20 @@ function requireRetryHandler () {
 	        this.reason = reason;
 	      }
 	    });
+	  }
+
+	  checkpointResponseEnd (headers, resume) {
+	    if (this.end == null && this.opts.method !== 'HEAD') {
+	      const contentLength = headers['content-length'];
+	      this.end = contentLength != null ? Number(contentLength) - 1 : null;
+
+	      assert(
+	        this.end == null || Number.isFinite(this.end),
+	        'invalid content-length'
+	      );
+	    }
+
+	    this.resume = this.end != null ? resume : null;
 	  }
 
 	  onRequestSent () {
@@ -13242,7 +13394,12 @@ function requireRetryHandler () {
 	    this.retryCount += 1;
 
 	    if (statusCode >= 300) {
-	      if (this.retryOpts.statusCodes.includes(statusCode) === false) {
+	      // Only expose a response if no earlier attempt has reached the caller.
+	      // Otherwise abort this attempt so the error settles the existing body
+	      // instead of replacing it with a new response.
+	      if (!this.headersSent && this.retryOpts.statusCodes.includes(statusCode) === false) {
+	        this.headersSent = true;
+	        this.checkpointResponseEnd(headers, resume);
 	        return this.handler.onHeaders(
 	          statusCode,
 	          rawHeaders,
@@ -13311,8 +13468,15 @@ function requireRetryHandler () {
 
 	      const { start, size, end = size - 1 } = contentRange;
 
-	      assert(this.start === start, 'content-range mismatch');
-	      assert(this.end == null || this.end === end, 'content-range mismatch');
+	      if (this.start !== start || (this.end != null && this.end !== end)) {
+	        this.abort(
+	          new RequestRetryError('Content-Range mismatch', statusCode, {
+	            headers,
+	            data: { count: this.retryCount }
+	          })
+	        );
+	        return false
+	      }
 
 	      this.resume = resume;
 	      return true
@@ -13324,6 +13488,7 @@ function requireRetryHandler () {
 	        const range = parseRangeHeader(headers['content-range']);
 
 	        if (range == null) {
+	          this.headersSent = true;
 	          return this.handler.onHeaders(
 	            statusCode,
 	            rawHeaders,
@@ -13362,6 +13527,7 @@ function requireRetryHandler () {
 	      );
 
 	      this.resume = resume;
+	      this.headersSent = true;
 	      this.etag = headers.etag != null ? headers.etag : null;
 
 	      // Weak etags are not useful for comparison nor cache
@@ -13401,7 +13567,7 @@ function requireRetryHandler () {
 	  }
 
 	  onError (err) {
-	    if (this.aborted || isDisturbed(this.opts.body)) {
+	    if (this.aborted || isDisturbed(this.opts.body) || (this.headersSent && this.resume == null)) {
 	      return this.handler.onError(err)
 	    }
 
@@ -25548,7 +25714,7 @@ function requireConnection () {
 	        // is specified, the server needs to include the same field and one of
 	        // the selected subprotocol values in its response for the connection to
 	        // be established.
-	        if (!requestProtocols.includes(secProtocol)) {
+	        if (requestProtocols === null || !requestProtocols.includes(secProtocol)) {
 	          failWebsocketConnection(ws, 'Protocol was not set in the opening handshake.');
 	          return
 	        }
@@ -25795,7 +25961,12 @@ function requirePermessageDeflate () {
 
 	        if (this.#maxPayloadSize > 0 && this.#inflate[kLength] > this.#maxPayloadSize) {
 	          callback(new MessageSizeExceededError());
+	          // The inflater may still hold buffered input that can emit a late
+	          // zlib error. Remove the data listener, then deterministically stop
+	          // the stream so a subsequent 'error' cannot fire without a listener
+	          // (which would terminate the process as an unhandled error event).
 	          this.#inflate.removeAllListeners();
+	          this.#inflate.destroy();
 	          this.#inflate = null;
 	          return
 	        }
@@ -27144,6 +27315,49 @@ function requireEventsourceStream () {
 	 */
 	const SPACE = 0x20;
 
+	const DATA = Buffer.from('data');
+	const EVENT = Buffer.from('event');
+	const ID = Buffer.from('id');
+	const RETRY = Buffer.from('retry');
+
+	function isASCIINumberBytes (buffer, start) {
+	  if (start >= buffer.length) {
+	    return false
+	  }
+
+	  for (let i = start; i < buffer.length; i++) {
+	    if (buffer[i] < 0x30 || buffer[i] > 0x39) {
+	      return false
+	    }
+	  }
+
+	  return true
+	}
+
+	function isValidLastEventIdBytes (buffer, start) {
+	  for (let i = start; i < buffer.length; i++) {
+	    if (buffer[i] === 0x00) {
+	      return false
+	    }
+	  }
+
+	  return true
+	}
+
+	function isFieldName (line, length, field) {
+	  if (length !== field.length) {
+	    return false
+	  }
+
+	  for (let i = 0; i < length; i++) {
+	    if (line[i] !== field[i]) {
+	      return false
+	    }
+	  }
+
+	  return true
+	}
+
 	/**
 	 * @typedef {object} EventSourceStreamEvent
 	 * @type {object}
@@ -27184,11 +27398,14 @@ function requireEventsourceStream () {
 	  eventEndCheck = false
 
 	  /**
-	   * @type {Buffer}
+	   * @type {Buffer[]}
 	   */
-	  buffer = null
+	  chunks = []
 
+	  chunkIndex = 0
 	  pos = 0
+	  lineChunkIndex = 0
+	  linePos = 0
 
 	  event = {
 	    data: undefined,
@@ -27227,92 +27444,20 @@ function requireEventsourceStream () {
 	      return
 	    }
 
-	    // Cache the chunk in the buffer, as the data might not be complete while
-	    // processing it
-	    // TODO: Investigate if there is a more performant way to handle
-	    // incoming chunks
-	    // see: https://github.com/nodejs/undici/issues/2630
-	    if (this.buffer) {
-	      this.buffer = Buffer.concat([this.buffer, chunk]);
-	    } else {
-	      this.buffer = chunk;
-	    }
+	    this.chunks.push(chunk);
 
 	    // Strip leading byte-order-mark if we opened the stream and started
 	    // the processing of the incoming data
 	    if (this.checkBOM) {
-	      switch (this.buffer.length) {
-	        case 1:
-	          // Check if the first byte is the same as the first byte of the BOM
-	          if (this.buffer[0] === BOM[0]) {
-	            // If it is, we need to wait for more data
-	            callback();
-	            return
-	          }
-	          // Set the checkBOM flag to false as we don't need to check for the
-	          // BOM anymore
-	          this.checkBOM = false;
-
-	          // The buffer only contains one byte so we need to wait for more data
-	          callback();
-	          return
-	        case 2:
-	          // Check if the first two bytes are the same as the first two bytes
-	          // of the BOM
-	          if (
-	            this.buffer[0] === BOM[0] &&
-	            this.buffer[1] === BOM[1]
-	          ) {
-	            // If it is, we need to wait for more data, because the third byte
-	            // is needed to determine if it is the BOM or not
-	            callback();
-	            return
-	          }
-
-	          // Set the checkBOM flag to false as we don't need to check for the
-	          // BOM anymore
-	          this.checkBOM = false;
-	          break
-	        case 3:
-	          // Check if the first three bytes are the same as the first three
-	          // bytes of the BOM
-	          if (
-	            this.buffer[0] === BOM[0] &&
-	            this.buffer[1] === BOM[1] &&
-	            this.buffer[2] === BOM[2]
-	          ) {
-	            // If it is, we can drop the buffered data, as it is only the BOM
-	            this.buffer = Buffer.alloc(0);
-	            // Set the checkBOM flag to false as we don't need to check for the
-	            // BOM anymore
-	            this.checkBOM = false;
-
-	            // Await more data
-	            callback();
-	            return
-	          }
-	          // If it is not the BOM, we can start processing the data
-	          this.checkBOM = false;
-	          break
-	        default:
-	          // The buffer is longer than 3 bytes, so we can drop the BOM if it is
-	          // present
-	          if (
-	            this.buffer[0] === BOM[0] &&
-	            this.buffer[1] === BOM[1] &&
-	            this.buffer[2] === BOM[2]
-	          ) {
-	            // Remove the BOM from the buffer
-	            this.buffer = this.buffer.subarray(3);
-	          }
-
-	          // Set the checkBOM flag to false as we don't need to check for the
-	          this.checkBOM = false;
-	          break
+	      if (this.handleBOM()) {
+	        callback();
+	        return
 	      }
 	    }
 
-	    while (this.pos < this.buffer.length) {
+	    while (this.hasCurrentByte()) {
+	      const byte = this.currentByte();
+
 	      // If the previous line ended with an end-of-line, we need to check
 	      // if the next character is also an end-of-line.
 	      if (this.eventEndCheck) {
@@ -27325,10 +27470,9 @@ function requireEventsourceStream () {
 	        if (this.crlfCheck) {
 	          // If the current character is a line feed, we can remove it
 	          // from the buffer and reset the crlfCheck flag
-	          if (this.buffer[this.pos] === LF) {
-	            this.buffer = this.buffer.subarray(this.pos + 1);
-	            this.pos = 0;
+	          if (byte === LF) {
 	            this.crlfCheck = false;
+	            this.consumeCurrentByte();
 
 	            // It is possible that the line feed is not the end of the
 	            // event. We need to check if the next character is an
@@ -27344,19 +27488,17 @@ function requireEventsourceStream () {
 	          this.crlfCheck = false;
 	        }
 
-	        if (this.buffer[this.pos] === LF || this.buffer[this.pos] === CR) {
+	        if (byte === LF || byte === CR) {
 	          // If the current character is a carriage return, we need to
 	          // set the crlfCheck flag to true, as we need to check if the
 	          // next character is a line feed so we can remove it from the
 	          // buffer
-	          if (this.buffer[this.pos] === CR) {
+	          if (byte === CR) {
 	            this.crlfCheck = true;
 	          }
 
-	          this.buffer = this.buffer.subarray(this.pos + 1);
-	          this.pos = 0;
-	          if (
-	            this.event.data !== undefined || this.event.event || this.event.id || this.event.retry) {
+	          this.consumeCurrentByte();
+	          if (this.hasPendingEvent()) {
 	            this.processEvent(this.event);
 	          }
 	          this.clearEvent();
@@ -27370,22 +27512,18 @@ function requireEventsourceStream () {
 
 	      // If the current character is an end-of-line, we can process the
 	      // line
-	      if (this.buffer[this.pos] === LF || this.buffer[this.pos] === CR) {
+	      if (byte === LF || byte === CR) {
 	        // If the current character is a carriage return, we need to
 	        // set the crlfCheck flag to true, as we need to check if the
 	        // next character is a line feed
-	        if (this.buffer[this.pos] === CR) {
+	        if (byte === CR) {
 	          this.crlfCheck = true;
 	        }
 
 	        // In any case, we can process the line as we reached an
 	        // end-of-line character
-	        this.parseLine(this.buffer.subarray(0, this.pos), this.event);
-
-	        // Remove the processed line from the buffer
-	        this.buffer = this.buffer.subarray(this.pos + 1);
-	        // Reset the position as we removed the processed line from the buffer
-	        this.pos = 0;
+	        this.parseLine(this.readLine(), this.event);
+	        this.consumeCurrentByte();
 	        // A line was processed and this could be the end of the event. We need
 	        // to check if the next line is empty to determine if the event is
 	        // finished.
@@ -27393,7 +27531,7 @@ function requireEventsourceStream () {
 	        continue
 	      }
 
-	      this.pos++;
+	      this.advanceCursor();
 	    }
 
 	    callback();
@@ -27418,64 +27556,53 @@ function requireEventsourceStream () {
 	      return
 	    }
 
-	    let field = '';
-	    let value = '';
+	    let fieldLength = line.length;
+	    let valueStart = line.length;
 
 	    // If the line contains a U+003A COLON character (:)
 	    if (colonPosition !== -1) {
-	      // Collect the characters on the line before the first U+003A COLON
-	      // character (:), and let field be that string.
-	      // TODO: Investigate if there is a more performant way to extract the
-	      // field
-	      // see: https://github.com/nodejs/undici/issues/2630
-	      field = line.subarray(0, colonPosition).toString('utf8');
+	      fieldLength = colonPosition;
 
 	      // Collect the characters on the line after the first U+003A COLON
 	      // character (:), and let value be that string.
 	      // If value starts with a U+0020 SPACE character, remove it from value.
-	      let valueStart = colonPosition + 1;
+	      valueStart = colonPosition + 1;
 	      if (line[valueStart] === SPACE) {
 	        ++valueStart;
 	      }
-	      // TODO: Investigate if there is a more performant way to extract the
-	      // value
-	      // see: https://github.com/nodejs/undici/issues/2630
-	      value = line.subarray(valueStart).toString('utf8');
-
-	      // Otherwise, the string is not empty but does not contain a U+003A COLON
-	      // character (:)
-	    } else {
-	      // Process the field using the steps described below, using the whole
-	      // line as the field name, and the empty string as the field value.
-	      field = line.toString('utf8');
-	      value = '';
 	    }
 
-	    // Modify the event with the field name and value. The value is also
-	    // decoded as UTF-8
-	    switch (field) {
-	      case 'data':
-	        if (event[field] === undefined) {
-	          event[field] = value;
-	        } else {
-	          event[field] += `\n${value}`;
-	        }
-	        break
-	      case 'retry':
-	        if (isASCIINumber(value)) {
-	          event[field] = value;
-	        }
-	        break
-	      case 'id':
-	        if (isValidLastEventId(value)) {
-	          event[field] = value;
-	        }
-	        break
-	      case 'event':
-	        if (value.length > 0) {
-	          event[field] = value;
-	        }
-	        break
+	    if (isFieldName(line, fieldLength, DATA)) {
+	      const value = line.toString('utf8', valueStart);
+
+	      if (event.data === undefined) {
+	        event.data = value;
+	      } else {
+	        event.data += `\n${value}`;
+	      }
+	      return
+	    }
+
+	    if (isFieldName(line, fieldLength, RETRY)) {
+	      if (isASCIINumberBytes(line, valueStart)) {
+	        event.retry = line.toString('utf8', valueStart);
+	      }
+	      return
+	    }
+
+	    if (isFieldName(line, fieldLength, ID)) {
+	      if (isValidLastEventIdBytes(line, valueStart)) {
+	        event.id = line.toString('utf8', valueStart);
+	      }
+	      return
+	    }
+
+	    if (isFieldName(line, fieldLength, EVENT)) {
+	      const value = line.toString('utf8', valueStart);
+
+	      if (value.length > 0) {
+	        event.event = value;
+	      }
 	    }
 	  }
 
@@ -27505,12 +27632,151 @@ function requireEventsourceStream () {
 	  }
 
 	  clearEvent () {
-	    this.event = {
-	      data: undefined,
-	      event: undefined,
-	      id: undefined,
-	      retry: undefined
-	    };
+	    this.event.data = undefined;
+	    this.event.event = undefined;
+	    this.event.id = undefined;
+	    this.event.retry = undefined;
+	  }
+
+	  hasPendingEvent () {
+	    return this.event.data !== undefined ||
+	      this.event.event !== undefined ||
+	      this.event.id !== undefined ||
+	      this.event.retry !== undefined
+	  }
+
+	  hasCurrentByte () {
+	    return this.chunkIndex < this.chunks.length &&
+	      this.pos < this.chunks[this.chunkIndex].length
+	  }
+
+	  currentByte () {
+	    return this.chunks[this.chunkIndex][this.pos]
+	  }
+
+	  consumeCurrentByte () {
+	    this.advanceCursor();
+	    this.syncLineStartToCursor();
+	  }
+
+	  advanceCursor () {
+	    this.pos++;
+
+	    while (this.chunkIndex < this.chunks.length && this.pos >= this.chunks[this.chunkIndex].length) {
+	      this.chunkIndex++;
+	      this.pos = 0;
+	    }
+	  }
+
+	  syncLineStartToCursor () {
+	    this.lineChunkIndex = this.chunkIndex;
+	    this.linePos = this.pos;
+	    this.dropConsumedChunks();
+	  }
+
+	  dropConsumedChunks () {
+	    while (this.lineChunkIndex > 0) {
+	      this.chunks.shift();
+	      this.lineChunkIndex--;
+	      this.chunkIndex--;
+	    }
+
+	    if (this.chunkIndex === this.chunks.length) {
+	      this.chunks.length = 0;
+	      this.chunkIndex = 0;
+	      this.pos = 0;
+	      this.lineChunkIndex = 0;
+	      this.linePos = 0;
+	    }
+	  }
+
+	  readLine () {
+	    if (this.lineChunkIndex === this.chunkIndex) {
+	      return this.chunks[this.chunkIndex].subarray(this.linePos, this.pos)
+	    }
+
+	    const chunks = [];
+	    let length = 0;
+
+	    for (let i = this.lineChunkIndex; i <= this.chunkIndex; i++) {
+	      const chunk = this.chunks[i];
+	      const start = i === this.lineChunkIndex ? this.linePos : 0;
+	      const end = i === this.chunkIndex ? this.pos : chunk.length;
+	      const slice = chunk.subarray(start, end);
+	      length += slice.length;
+	      chunks.push(slice);
+	    }
+
+	    return Buffer.concat(chunks, length)
+	  }
+
+	  peekBufferedByte (offset) {
+	    let chunkIndex = this.lineChunkIndex;
+	    let pos = this.linePos;
+
+	    while (chunkIndex < this.chunks.length) {
+	      const chunk = this.chunks[chunkIndex];
+	      const remaining = chunk.length - pos;
+
+	      if (offset < remaining) {
+	        return chunk[pos + offset]
+	      }
+
+	      offset -= remaining;
+	      chunkIndex++;
+	      pos = 0;
+	    }
+	  }
+
+	  discardLeadingBytes (count) {
+	    while (count > 0 && this.lineChunkIndex < this.chunks.length) {
+	      const chunk = this.chunks[this.lineChunkIndex];
+	      const remaining = chunk.length - this.linePos;
+
+	      if (count < remaining) {
+	        this.linePos += count;
+	        count = 0;
+	      } else {
+	        count -= remaining;
+	        this.lineChunkIndex++;
+	        this.linePos = 0;
+	      }
+	    }
+
+	    this.chunkIndex = this.lineChunkIndex;
+	    this.pos = this.linePos;
+	    this.dropConsumedChunks();
+	  }
+
+	  handleBOM () {
+	    const first = this.peekBufferedByte(0);
+	    const second = this.peekBufferedByte(1);
+	    const third = this.peekBufferedByte(2);
+
+	    if (second === undefined) {
+	      if (first === BOM[0]) {
+	        return true
+	      }
+
+	      this.checkBOM = false;
+	      return true
+	    }
+
+	    if (third === undefined) {
+	      if (first === BOM[0] && second === BOM[1]) {
+	        return true
+	      }
+
+	      this.checkBOM = false;
+	      return false
+	    }
+
+	    if (first === BOM[0] && second === BOM[1] && third === BOM[2]) {
+	      this.discardLeadingBytes(3);
+	    }
+
+	    this.checkBOM = false;
+	    return !this.hasCurrentByte()
 	  }
 	}
 
@@ -29273,38 +29539,40 @@ class Alias extends NodeBase {
             if (node.anchor === this.source)
                 found = node;
         }
+        if (found && ctx) {
+            const { anchors, doc, maxAliasCount } = ctx;
+            let data = anchors.get(found);
+            if (!data) {
+                // Resolve anchors for Node.prototype.toJS()
+                toJS(found, null, ctx);
+                data = anchors.get(found);
+            }
+            /* istanbul ignore if */
+            if (data?.res === undefined) {
+                const msg = 'This should not happen: Alias anchor was not resolved?';
+                throw new ReferenceError(msg);
+            }
+            if (maxAliasCount >= 0) {
+                data.count += 1;
+                if (data.aliasCount === 0)
+                    data.aliasCount = getAliasCount(doc, found, anchors);
+                if (data.count * data.aliasCount > maxAliasCount) {
+                    const msg = 'Excessive alias count indicates a resource exhaustion attack';
+                    throw new ReferenceError(msg);
+                }
+            }
+        }
         return found;
     }
     toJSON(_arg, ctx) {
         if (!ctx)
             return { source: this.source };
-        const { anchors, doc, maxAliasCount } = ctx;
-        const source = this.resolve(doc, ctx);
+        const source = this.resolve(ctx.doc, ctx);
         if (!source) {
             const msg = `Unresolved alias (the anchor must be set before the alias): ${this.source}`;
             throw new ReferenceError(msg);
         }
-        let data = anchors.get(source);
-        if (!data) {
-            // Resolve anchors for Node.prototype.toJS()
-            toJS(source, null, ctx);
-            data = anchors.get(source);
-        }
-        /* istanbul ignore if */
-        if (data?.res === undefined) {
-            const msg = 'This should not happen: Alias anchor was not resolved?';
-            throw new ReferenceError(msg);
-        }
-        if (maxAliasCount >= 0) {
-            data.count += 1;
-            if (data.aliasCount === 0)
-                data.aliasCount = getAliasCount(doc, source, anchors);
-            if (data.count * data.aliasCount > maxAliasCount) {
-                const msg = 'Excessive alias count indicates a resource exhaustion attack';
-                throw new ReferenceError(msg);
-            }
-        }
-        return data.res;
+        return ctx.anchors.get(source).res;
     }
     toString(ctx, _onComment, _onChompKeep) {
         const src = `*${this.source}`;
@@ -33151,46 +33419,47 @@ function plainValue(source, onError) {
     }
     if (badChar)
         onError(0, 'BAD_SCALAR_START', `Plain value cannot start with ${badChar}`);
-    return foldLines(source);
+    return unfoldLines(source);
 }
 function singleQuotedValue(source, onError) {
     if (source[source.length - 1] !== "'" || source.length === 1)
         onError(source.length, 'MISSING_CHAR', "Missing closing 'quote");
-    return foldLines(source.slice(1, -1)).replace(/''/g, "'");
+    return unfoldLines(source.slice(1, -1)).replace(/''/g, "'");
 }
-function foldLines(source) {
-    /**
-     * The negative lookbehind here and in the `re` RegExp is to
-     * prevent causing a polynomial search time in certain cases.
-     *
-     * The try-catch is for Safari, which doesn't support this yet:
-     * https://caniuse.com/js-regexp-lookbehind
-     */
-    let first, line;
-    try {
-        first = new RegExp('(.*?)(?<![ \t])[ \t]*\r?\n', 'sy');
-        line = new RegExp('[ \t]*(.*?)(?:(?<![ \t])[ \t]*)?\r?\n', 'sy');
-    }
-    catch {
-        first = /(.*?)[ \t]*\r?\n/sy;
-        line = /[ \t]*(.*?)[ \t]*\r?\n/sy;
-    }
-    let match = first.exec(source);
+function unfoldLines(source) {
+    const line = /(.*?)\r?\n/sy;
+    let match = line.exec(source);
     if (!match)
         return source;
-    let res = match[1];
+    /**
+     * The negative lookbehinds in these RegExps are to
+     * prevent causing a polynomial search time in certain cases.
+     *
+     * The try-catch is for Safari < 16.4 and other old browsers:
+     * https://caniuse.com/js-regexp-lookbehind
+     */
+    let trimEnd, trimBoth;
+    try {
+        trimEnd = new RegExp('(?<![ \t])[ \t]+$');
+        trimBoth = new RegExp('^[ \t]+|(?<![ \t])[ \t]+$', 'g');
+    }
+    catch {
+        trimEnd = /[ \t]+$/;
+        trimBoth = /^[ \t]+|[ \t]+$/g;
+    }
+    let res = match[1].replace(trimEnd, '');
     let sep = ' ';
-    let pos = first.lastIndex;
-    line.lastIndex = pos;
+    let pos = line.lastIndex;
     while ((match = line.exec(source))) {
-        if (match[1] === '') {
+        const lm = match[1].replace(trimBoth, '');
+        if (lm === '') {
             if (sep === '\n')
                 res += sep;
             else
                 sep = '\n';
         }
         else {
-            res += sep + match[1];
+            res += sep + lm;
             sep = ' ';
         }
         pos = line.lastIndex;
@@ -35586,29 +35855,12 @@ function parseDocument(source, options = {}) {
     return doc;
 }
 
-// One encoding for every action output. The format is a contract with
-// workflows that call fromJSON() on the output, so it stays explicit here
-// instead of behind core.setOutput's own stringify.
-/**
- * Encodes a value for core.setOutput(). A string passes through unchanged.
- * Anything else is JSON, so a caller uses fromJSON() to get back a number,
- * a boolean, or an array.
- */
-function encodeOutput(value) {
-    return typeof value === 'string' ? value : JSON.stringify(value);
-}
-
-// Shared by every action that writes untrusted values into a job summary
-// table (nf-test, read-config): core.summary.addTable() writes cell data as
-// raw HTML, unescaped.
+// core.summary.addTable() writes cell data as raw HTML, unescaped.
 /** Escapes text for a job summary table cell. */
 function escapeHtml(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Shared by every action that treats a missing file as a normal case, not a
-// crash (read-config's config file, nf-test's TAP file, validate-patch's
-// patch file).
 /**
  * Node's fs errors always carry a string .code, regardless of which realm
  * constructed them. Checking that shape, rather than `instanceof Error`,
@@ -35636,145 +35888,19 @@ async function writeSummaryBestEffort() {
     }
 }
 
-// The settings registry. One entry per setting. Add a setting by adding a
-// row here: action.yml, defaults and the resolver all read from this list.
-// The drift test in __tests__/read-config checks action.yml against it.
-// Infers each row against its own `kind`, so a mismatched default (for
-// example `kind: 'number'` with a string default) fails type-check instead
-// of widening away into the `SettingDef[]` union below.
-function defineSetting(def) {
-    return def;
-}
+// The metadata registry: one entry per value read from .nf-core.yml. These
+// are keys nf-core/tools itself writes and maintains. CI settings are typed
+// 'workflow_call' inputs on each reusable workflow instead, never read from
+// this file. Add a value by adding a row here; the drift test in
+// __tests__/read-config checks action.yml against this list.
 /** Fallback for the 'config-file' input. action.yml's declared default must match this. */
 const DEFAULT_CONFIG_FILE = '.nf-core.yml';
-// Order here is the order settings appear in action.yml and in the summary table.
-const SETTINGS = [
-    defineSetting({
-        output: 'nf-test-version',
-        kind: 'string',
-        default: '0.9.5'
-    }),
-    defineSetting({
-        output: 'nextflow-versions',
-        kind: 'string-list',
-        default: ['25.10.4', 'latest-everything']
-    }),
-    defineSetting({
-        output: 'profiles',
-        kind: 'string-list',
-        default: ['conda', 'docker', 'singularity']
-    }),
-    defineSetting({
-        output: 'max-shards',
-        kind: 'number',
-        default: 20
-    }),
-    defineSetting({
-        output: 'nf-test-workdir',
-        kind: 'string',
-        default: '~'
-    }),
-    defineSetting({
-        output: 'runner',
-        kind: 'string',
-        default: '4cpu-linux-x64'
-    }),
-    defineSetting({
-        output: 'nextflow-lint',
-        kind: 'boolean',
-        // Opt-in: 'nextflow lint' was never part of the pipeline template, so a
-        // pipeline that adopts 'linting.yml' must not gain a new failing check
-        // by default. See README.md for how a pipeline opts in.
-        default: false
-    }),
-    defineSetting({
-        output: 'awsfulltest-required-approvals',
-        kind: 'number',
-        // Two distinct, trusted approvals. authorize-launch never accepts fewer
-        // than two on a pull request review, so a pipeline can only raise this.
-        // See README.md's awsfulltest.yml section for why.
-        default: 2
-    }),
-    defineSetting({
-        output: 'nf-core-version',
-        configPath: 'nf_core_version',
-        kind: 'string',
-        default: ''
-    }),
-    defineSetting({
-        output: 'repository-type',
-        configPath: 'repository_type',
-        kind: 'string',
-        default: ''
-    }),
-    defineSetting({
-        output: 'pipeline-name',
-        configPath: 'template.name',
-        kind: 'string',
-        default: ''
-    })
+// Order here is the order outputs appear in action.yml and in the summary table.
+const METADATA = [
+    { output: 'nf-core-version', configPath: 'nf_core_version' },
+    { output: 'pipeline-name', configPath: 'template.name' }
 ];
 
-// Shared predicate for every setting that must be a positive integer
-// (get-shards' max-shards, read-config's number-kind settings).
-/** Throws unless `value` is a positive integer. `label` names the value in the message. */
-function assertPositiveInteger(value, label) {
-    if (!Number.isInteger(value) || value <= 0) {
-        throw new Error(`${label} must be a positive integer. Got: ${String(value)}`);
-    }
-}
-
-function kindLabel(kind) {
-    if (kind === 'string')
-        return 'a string';
-    if (kind === 'string-list')
-        return 'a list of strings';
-    if (kind === 'boolean')
-        return 'a boolean';
-    return 'a number';
-}
-function matchesKind(kind, value) {
-    if (kind === 'string')
-        return typeof value === 'string';
-    if (kind === 'string-list') {
-        return (Array.isArray(value) && value.every((item) => typeof item === 'string'));
-    }
-    if (kind === 'boolean')
-        return typeof value === 'boolean';
-    return typeof value === 'number';
-}
-/**
- * A YAML scalar like `2.10` or `3.0` parses as a number, not the string the
- * maintainer wrote: `String(2.1)` is `"2.1"`, silently dropping the trailing
- * zero. Recover the maintainer's own text from the parsed document instead.
- * Falls back to `String(value)` when there is no source text, for example a
- * value that did not come from a parsed file.
- */
-function scalarSourceAt(doc, path) {
-    const node = doc?.getIn(path.split('.'), true);
-    return isScalar(node) && typeof node.source === 'string'
-        ? node.source
-        : undefined;
-}
-/**
- * For a 'string' setting, accept a YAML number or boolean and convert it to
- * text, so an unquoted version in .nf-core.yml still resolves instead of
- * hard-failing. Anything non-scalar (a list, a mapping) is left alone and
- * still fails the kind check below.
- */
-function coerceStringScalar(kind, value, source) {
-    if (kind === 'string' &&
-        (typeof value === 'number' || typeof value === 'boolean')) {
-        return source ?? String(value);
-    }
-    return value;
-}
-/** Throws if a string-list setting's value is an empty list. Applies to every string-list setting: an empty list never builds a usable matrix. */
-function assertNonEmptyList(value, label) {
-    if (value.length === 0) {
-        throw new Error(`${label} must not be an empty list.`);
-    }
-}
 /** Reads a dot-separated path out of a parsed YAML document. Undefined if any segment is missing. */
 function getAtPath(doc, path) {
     return path.split('.').reduce((node, key) => {
@@ -35787,88 +35913,40 @@ function getAtPath(doc, path) {
         return undefined;
     }, doc);
 }
-// Action inputs are always strings, so a list or number input carries the
-// same JSON an output would carry. This keeps one format for both directions.
-function parseInput(setting, raw) {
-    if (setting.kind === 'string')
+/**
+ * A YAML scalar like `2.10` or `3.0` parses as a number, not the string the
+ * maintainer wrote: `String(2.1)` is `"2.1"`, silently dropping the trailing
+ * zero. Recover the maintainer's own text from the parsed document instead.
+ * Undefined when there is no source text, for example a value that did not
+ * come from a parsed file.
+ */
+function scalarSourceAt(doc, path) {
+    const node = doc?.getIn(path.split('.'), true);
+    return isScalar(node) && typeof node.source === 'string'
+        ? node.source
+        : undefined;
+}
+/**
+ * Reads one metadata value from .nf-core.yml. An unquoted YAML number or
+ * boolean is accepted and converted to the text the maintainer wrote, so an
+ * unquoted version still resolves. Anything else that is not a string (a
+ * list, a mapping) throws. A missing value resolves to an empty string,
+ * with a warning: callers guard it before use.
+ */
+function resolveMetadata(def, config, doc) {
+    const raw = getAtPath(config, def.configPath);
+    if (raw === undefined) {
+        warning(`'${def.configPath}' is not set in .nf-core.yml. ${def.output} defaults to an empty string.`);
+        return '';
+    }
+    if (typeof raw === 'string')
         return raw;
-    let parsed;
-    try {
-        parsed = JSON.parse(raw);
+    if (typeof raw === 'number' || typeof raw === 'boolean') {
+        const value = scalarSourceAt(doc, def.configPath) ?? String(raw);
+        info(`${def.configPath}: read as the ${typeof raw} ${JSON.stringify(raw)}, not a string. Quote it in .nf-core.yml. Using '${value}'.`);
+        return value;
     }
-    catch {
-        throw new Error(`Input '${setting.output}' must be valid JSON (${kindLabel(setting.kind)}). Got: ${raw}`);
-    }
-    if (!matchesKind(setting.kind, parsed)) {
-        throw new Error(`Input '${setting.output}' must be ${kindLabel(setting.kind)}. Got: ${raw}`);
-    }
-    // Every 'number' setting today (max-shards, awsfulltest-required-approvals)
-    // needs a positive integer: a shard count of zero or a fraction cannot
-    // build a matrix, and an approval count of zero or a fraction can never be
-    // reached. If a future number setting legitimately allows zero or a
-    // fraction, give it a per-setting constraint instead of loosening this one.
-    if (setting.kind === 'number') {
-        assertPositiveInteger(parsed, `Input '${setting.output}'`);
-    }
-    // An empty list (for example 'profiles: []') builds a matrix with no
-    // entries, or a null shard string, instead of failing loudly.
-    if (setting.kind === 'string-list') {
-        assertNonEmptyList(parsed, `Input '${setting.output}'`);
-    }
-    return parsed;
-}
-/**
- * Resolves one setting. A CI setting (no configPath) comes from its action
- * input, then the built-in default; it is never read from .nf-core.yml. A
- * read-only setting comes from .nf-core.yml, then an empty default.
- * Throws on a malformed input or a wrong-typed config value. Never coerces,
- * except for a string setting given an unquoted YAML number or boolean.
- */
-function resolveSetting(setting, config, doc) {
-    if (setting.configPath === undefined) {
-        const raw = getInput(setting.output);
-        if (raw.trim() !== '') {
-            const value = parseInput(setting, raw);
-            info(`${setting.output}: using the '${setting.output}' input (wins over the default)`);
-            return { value, source: 'input' };
-        }
-        info(`${setting.output}: no input given, using the default ${JSON.stringify(setting.default)}`);
-        return { value: setting.default, source: 'default' };
-    }
-    const rawFileValue = getAtPath(config, setting.configPath);
-    if (rawFileValue !== undefined) {
-        const source = scalarSourceAt(doc, setting.configPath);
-        const fileValue = coerceStringScalar(setting.kind, rawFileValue, source);
-        if (fileValue !== rawFileValue) {
-            info(`${setting.configPath}: read as the ${typeof rawFileValue} ${JSON.stringify(rawFileValue)}, not a string. Quote it in .nf-core.yml. Using '${String(fileValue)}'.`);
-        }
-        if (!matchesKind(setting.kind, fileValue)) {
-            throw new Error(`.nf-core.yml: '${setting.configPath}' must be ${kindLabel(setting.kind)}. Got: ${JSON.stringify(rawFileValue)}`);
-        }
-        info(`${setting.output}: using '${setting.configPath}' from .nf-core.yml`);
-        return { value: fileValue, source: 'file' };
-    }
-    warning(`'${setting.configPath}' is not set in .nf-core.yml. ${setting.output} defaults to an empty string.`);
-    return { value: setting.default, source: 'default' };
-}
-/**
- * Warns when .nf-core.yml still carries a 'ci:' block. CI settings are
- * workflow inputs now, and nothing reads 'ci:' any more: without this
- * warning a pipeline that still sets one would silently get the defaults.
- * `ci:` with no value parses as null and is treated the same as absent.
- */
-function warnIgnoredCiBlock(config) {
-    const ci = getAtPath(config, 'ci');
-    if (ci === undefined || ci === null)
-        return;
-    // Key names come from the pipeline's .nf-core.yml, a contributor's file
-    // on a pull request: JSON-encode them so a key containing a newline
-    // can't inject a workflow command into the log (same reasoning as
-    // run.ts's resolved-value log line).
-    const keys = typeof ci === 'object' && !Array.isArray(ci)
-        ? ` (${JSON.stringify(Object.keys(ci))})`
-        : '';
-    warning(`.nf-core.yml has a 'ci:' block${keys}, which is no longer read. Pass these settings as 'with:' inputs to the reusable workflow instead, then remove 'ci:' from .nf-core.yml.`);
+    throw new Error(`.nf-core.yml: '${def.configPath}' must be a string. Got: ${JSON.stringify(raw)}`);
 }
 
 /**
@@ -35894,8 +35972,8 @@ function resolveConfigPath(workspace, configFileInput) {
     return configPath;
 }
 /**
- * Reads and parses the config file, keeping the yaml `Document` so a
- * 'string' setting can recover a scalar's original source text (see
+ * Reads and parses the config file, keeping the yaml `Document` so an
+ * unquoted scalar's original source text can be recovered (see
  * resolve.ts). Undefined if the file does not exist.
  */
 function loadConfig(configPath) {
@@ -35905,7 +35983,7 @@ function loadConfig(configPath) {
     }
     catch (error) {
         if (isEnoent(error)) {
-            warning(`No config file found at '${configPath}'. Every setting read from it resolves to an empty string.`);
+            warning(`No config file found at '${configPath}'. Every output resolves to an empty string.`);
             return undefined;
         }
         throw error;
@@ -35920,53 +35998,44 @@ function loadConfig(configPath) {
     return doc;
 }
 function logAndWriteSummary(rows) {
-    info('Resolved CI settings:');
+    info('Pipeline metadata from .nf-core.yml:');
     for (const row of rows) {
-        // A file-sourced value is a contributor's own .nf-core.yml on a pull
-        // request, and an input-sourced one can come from the calling stub,
-        // which a pull request can also change: JSON-encode it so a value
-        // containing a newline can't inject a workflow command into the log
-        // (same reasoning as run-nf-test.ts, plan-run and validate-patch). The
-        // summary table below is escaped for HTML separately; this is the log
-        // path, which needs its own encoding.
-        info(`  ${row.setting} = ${JSON.stringify(row.raw)} (${row.source})`);
+        // Every value is a contributor's own .nf-core.yml on a pull request:
+        // JSON-encode it so a value containing a newline can't inject a
+        // workflow command into the log (same reasoning as run-nf-test.ts,
+        // plan-run and validate-patch). The summary table below is escaped for
+        // HTML separately; this is the log path, which needs its own encoding.
+        info(`  ${row.output} = ${JSON.stringify(row.value)}`);
     }
-    summary.addHeading('read-config: resolved settings', 3).addTable([
+    summary.addHeading('read-config: pipeline metadata', 3).addTable([
         [
-            { data: 'Setting', header: true },
-            { data: 'Value', header: true },
-            { data: 'Source', header: true }
+            { data: 'Output', header: true },
+            { data: 'Value', header: true }
         ],
-        // 'setting' and 'source' are internal, fixed values. 'value' can come
-        // from the pipeline's .nf-core.yml, which on a pull request is the
-        // contributor's version of that file: addTable() writes cell data as
-        // raw HTML, unescaped, so it must be escaped here.
-        ...rows.map((row) => [row.setting, escapeHtml(row.value), row.source])
+        // 'output' is an internal, fixed value. 'value' comes from the
+        // pipeline's .nf-core.yml, which on a pull request is the contributor's
+        // version of that file: addTable() writes cell data as raw HTML,
+        // unescaped, so it must be escaped here.
+        ...rows.map((row) => [row.output, escapeHtml(row.value)])
     ]);
     return writeSummaryBestEffort();
 }
-/** Resolves every registry setting and publishes it as an action output and a summary table row. */
+/** Reads every registry value and publishes it as an action output and a summary table row. */
 async function run() {
     const configFileInput = getInput('config-file') || DEFAULT_CONFIG_FILE;
     const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
     const configPath = resolveConfigPath(workspace, configFileInput);
     const doc = loadConfig(configPath);
     const config = doc?.toJS();
-    warnIgnoredCiBlock(config);
-    // Resolve every setting before writing any output. If one setting fails
-    // to resolve, this throws before the loop below writes anything, so a
+    // Resolve every value before writing any output. If one fails to
+    // resolve, this throws before the loop below writes anything, so a
     // caller never sees a partial set of outputs.
-    const rows = SETTINGS.map((setting) => {
-        const resolved = resolveSetting(setting, config, doc);
-        return {
-            setting: setting.output,
-            value: encodeOutput(resolved.value),
-            raw: resolved.value,
-            source: resolved.source
-        };
-    });
+    const rows = METADATA.map((def) => ({
+        output: def.output,
+        value: resolveMetadata(def, config, doc)
+    }));
     for (const row of rows) {
-        setOutput(row.setting, row.value);
+        setOutput(row.output, row.value);
     }
     await logAndWriteSummary(rows);
 }
