@@ -9,7 +9,7 @@ import { writeSummaryBestEffort } from '../../lib/write-summary.js'
 import { DEFAULT_CONFIG_FILE, SETTINGS } from './registry.js'
 import {
   resolveSetting,
-  warnUnknownCiKeys,
+  warnIgnoredCiBlock,
   type SettingValue,
   type Source
 } from './resolve.js'
@@ -26,8 +26,8 @@ interface Row {
 /**
  * Resolves 'config-file' against the workspace and rejects a path that
  * escapes it, so a caller can't read an arbitrary file on the runner
- * (.github/SECURITY.md's trust boundary: this repo reads only what it's told
- * to, from where it's told to).
+ * (SECURITY.md's trust boundary: this repo reads only what it's told to,
+ * from where it's told to).
  */
 function resolveConfigPath(workspace: string, configFileInput: string): string {
   if (isAbsolute(configFileInput)) {
@@ -65,7 +65,7 @@ function loadConfig(configPath: string): Document | undefined {
   } catch (error) {
     if (isEnoent(error)) {
       core.warning(
-        `No config file found at '${configPath}'. Using the built-in default for every ci setting.`
+        `No config file found at '${configPath}'. Every setting read from it resolves to an empty string.`
       )
       return undefined
     }
@@ -89,9 +89,12 @@ function logAndWriteSummary(rows: Row[]): Promise<void> {
   core.info('Resolved CI settings:')
   for (const row of rows) {
     // A file-sourced value is a contributor's own .nf-core.yml on a pull
-    // request: JSON-encode it so a value containing a newline can't inject
-    // a workflow command into the log. The summary table below is escaped
-    // for HTML separately; this is the log path, which needs its own encoding.
+    // request, and an input-sourced one can come from the calling stub,
+    // which a pull request can also change: JSON-encode it so a value
+    // containing a newline can't inject a workflow command into the log
+    // (same reasoning as run-nf-test.ts, plan-run and validate-patch). The
+    // summary table below is escaped for HTML separately; this is the log
+    // path, which needs its own encoding.
     core.info(`  ${row.setting} = ${JSON.stringify(row.raw)} (${row.source})`)
   }
 
@@ -118,7 +121,7 @@ export async function run(): Promise<void> {
 
   const doc = loadConfig(configPath)
   const config: unknown = doc?.toJS()
-  warnUnknownCiKeys(config)
+  warnIgnoredCiBlock(config)
 
   // Resolve every setting before writing any output. If one setting fails
   // to resolve, this throws before the loop below writes anything, so a

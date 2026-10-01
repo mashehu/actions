@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import { type Document, isScalar } from 'yaml'
 import { assertPositiveInteger } from '../../lib/positive-integer.js'
-import { type SettingDef, type ValueKind, KNOWN_CI_KEYS } from './registry.js'
+import { type SettingDef, type ValueKind } from './registry.js'
 
 export type Source = 'input' | 'file' | 'default'
 export type SettingValue = string | string[] | number | boolean
@@ -73,21 +73,6 @@ function assertNonEmptyList(value: string[], label: string): void {
   }
 }
 
-/** Throws if the 'runner' setting's value is empty or whitespace-only. A blank runner label matches no runner, and GitHub queues the job forever instead of failing it. */
-function assertRunnerNotBlank(
-  setting: SettingDef,
-  value: unknown,
-  label: string
-): void {
-  if (
-    setting.output === 'runner' &&
-    typeof value === 'string' &&
-    value.trim() === ''
-  ) {
-    throw new Error(`${label} must not be empty.`)
-  }
-}
-
 /** Reads a dot-separated path out of a parsed YAML document. Undefined if any segment is missing. */
 export function getAtPath(doc: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((node, key) => {
@@ -138,7 +123,9 @@ function parseInput(setting: SettingDef, raw: string): SettingValue {
 }
 
 /**
- * Resolves one setting: input, then .nf-core.yml, then the built-in default.
+ * Resolves one setting. A CI setting (no configPath) comes from its action
+ * input, then the built-in default; it is never read from .nf-core.yml. A
+ * read-only setting comes from .nf-core.yml, then an empty default.
  * Throws on a malformed input or a wrong-typed config value. Never coerces,
  * except for a string setting given an unquoted YAML number or boolean.
  */
@@ -147,15 +134,19 @@ export function resolveSetting(
   config: unknown,
   doc?: Document
 ): Resolved {
-  if (setting.hasInput) {
+  if (setting.configPath === undefined) {
     const raw = core.getInput(setting.output)
     if (raw.trim() !== '') {
       const value = parseInput(setting, raw)
       core.info(
-        `${setting.output}: using the '${setting.output}' input (wins over .nf-core.yml and the default)`
+        `${setting.output}: using the '${setting.output}' input (wins over the default)`
       )
       return { value, source: 'input' }
     }
+    core.info(
+      `${setting.output}: no input given, using the default ${JSON.stringify(setting.default)}`
+    )
+    return { value: setting.default, source: 'default' }
   }
 
   const rawFileValue = getAtPath(config, setting.configPath)
@@ -173,67 +164,36 @@ export function resolveSetting(
         `.nf-core.yml: '${setting.configPath}' must be ${kindLabel(setting.kind)}. Got: ${JSON.stringify(rawFileValue)}`
       )
     }
-    if (setting.kind === 'number') {
-      assertPositiveInteger(
-        fileValue as number,
-        `.nf-core.yml: '${setting.configPath}'`
-      )
-    }
-    if (setting.kind === 'string-list') {
-      assertNonEmptyList(
-        fileValue as string[],
-        `.nf-core.yml: '${setting.configPath}'`
-      )
-    }
-    assertRunnerNotBlank(
-      setting,
-      fileValue,
-      `.nf-core.yml: '${setting.configPath}'`
-    )
     core.info(
-      `${setting.output}: using '${setting.configPath}' from .nf-core.yml (wins over the default)`
+      `${setting.output}: using '${setting.configPath}' from .nf-core.yml`
     )
     return { value: fileValue as SettingValue, source: 'file' }
   }
 
-  if (setting.hasInput) {
-    core.warning(
-      `${setting.output} is not set. Using the default ${JSON.stringify(setting.default)}. ` +
-        `Set it with the '${setting.output}' input or '${setting.configPath}' in .nf-core.yml.`
-    )
-  } else {
-    core.warning(
-      `'${setting.configPath}' is not set in .nf-core.yml. ${setting.output} defaults to an empty string.`
-    )
-  }
+  core.warning(
+    `'${setting.configPath}' is not set in .nf-core.yml. ${setting.output} defaults to an empty string.`
+  )
   return { value: setting.default, source: 'default' }
 }
 
 /**
- * Validates the optional 'ci:' block and warns about typo-prone keys it does
- * not recognize. Throws if 'ci:' is present but is not a mapping, so a typo
- * like `ci: oops` fails loudly instead of silently defaulting every setting.
+ * Warns when .nf-core.yml still carries a 'ci:' block. CI settings are
+ * workflow inputs now, and nothing reads 'ci:' any more: without this
+ * warning a pipeline that still sets one would silently get the defaults.
  * `ci:` with no value parses as null and is treated the same as absent.
  */
-export function warnUnknownCiKeys(config: unknown): void {
+export function warnIgnoredCiBlock(config: unknown): void {
   const ci = getAtPath(config, 'ci')
   if (ci === undefined || ci === null) return
-  if (typeof ci !== 'object' || Array.isArray(ci)) {
-    throw new Error(
-      `.nf-core.yml: 'ci' must be a mapping. Got: ${JSON.stringify(ci)}`
-    )
-  }
-
-  const unknown = Object.keys(ci as Record<string, unknown>).filter(
-    (key) => !KNOWN_CI_KEYS.includes(key)
+  // Key names come from the pipeline's .nf-core.yml, a contributor's file
+  // on a pull request: JSON-encode them so a key containing a newline
+  // can't inject a workflow command into the log (same reasoning as
+  // run.ts's resolved-value log line).
+  const keys =
+    typeof ci === 'object' && !Array.isArray(ci)
+      ? ` (${JSON.stringify(Object.keys(ci))})`
+      : ''
+  core.warning(
+    `.nf-core.yml has a 'ci:' block${keys}, which is no longer read. Pass these settings as 'with:' inputs to the reusable workflow instead, then remove 'ci:' from .nf-core.yml.`
   )
-  if (unknown.length > 0) {
-    // Key names come from the pipeline's .nf-core.yml, a contributor's file
-    // on a pull request: JSON-encode them so a key containing a newline
-    // can't inject a workflow command into the log (same reasoning as
-    // run.ts's resolved-value log line).
-    core.warning(
-      `Unknown key(s) under 'ci:' in .nf-core.yml, ignored: ${JSON.stringify(unknown)}`
-    )
-  }
 }

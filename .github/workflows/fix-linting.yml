@@ -20,6 +20,16 @@ name: fix-linting
 # See .github/SECURITY.md for the trust boundary this design follows.
 on:
   workflow_call:
+    inputs:
+      nextflow-versions:
+        description: >-
+          Nextflow versions, as a JSON array of strings, for example
+          '["25.10.4","latest-everything"]'. The lint hooks run with the first
+          entry. Pass the same value as the 'linting.yml' stub. Leave unset for
+          the built-in default (see README.md).
+        type: string
+        required: false
+        default: ''
     secrets:
       BOT_TOKEN:
         description: >-
@@ -148,11 +158,11 @@ jobs:
       has-patch: ${{ steps.patch.outputs.has_patch }}
       prek-outcome: ${{ steps.prek.outcome }}
     steps:
-      # Reads .nf-core.yml from the default branch, before the checkout
-      # below switches this workspace to the pull request's own content: the
-      # nextflow version used to run the pull request's lint hooks must come
-      # from a version this repository's maintainers wrote, not from the
-      # pull request under test.
+      # 'gh pr checkout' below needs a clone to switch. The Nextflow version
+      # comes from the 'nextflow-versions' input, which an 'issue_comment'
+      # run always reads from the stub on the default branch, never from the
+      # pull request under test. Resolved before that checkout regardless,
+      # so nothing in this job reads it from pull request content.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -161,6 +171,8 @@ jobs:
       - name: Resolve CI configuration
         id: read-config
         uses: $/actions/read-config
+        with:
+          nextflow-versions: ${{ inputs.nextflow-versions }}
 
       - name: Checkout pull request
         id: pr

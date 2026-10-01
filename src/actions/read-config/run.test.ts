@@ -69,7 +69,7 @@ describe('run', () => {
   })
 
   it('fails with a clear message naming the file on malformed YAML', async () => {
-    writeFileSync(join(workDir, '.nf-core.yml'), 'ci:\n  profiles: [docker\n')
+    writeFileSync(join(workDir, '.nf-core.yml'), 'template:\n  name: [rnaseq\n')
     await expect(run()).rejects.toThrow(/\.nf-core\.yml/)
   })
 
@@ -93,27 +93,37 @@ describe('run', () => {
     expect(outputs['nf-core-version']).toBe('4.0.3')
     expect(outputs['pipeline-name']).toBe('rnaseq')
     expect(outputs['repository-type']).toBe('pipeline')
-    // No ci: block in this config, so every ci setting still falls back to its default.
+    // No input given, so every ci setting falls back to its default.
     expect(outputs['nf-test-version']).toBe('0.9.5')
     expect(outputs['profiles']).toBe('["conda","docker","singularity"]')
   })
 
   it('encodes lists and numbers as JSON, and strings as plain text', async () => {
-    writeFileSync(
-      join(workDir, '.nf-core.yml'),
-      [
-        'ci:',
-        '  nf_test_version: "1.2.3"',
-        '  profiles: [docker, singularity]',
-        '  max_shards: 7'
-      ].join('\n')
-    )
+    const inputs: Record<string, string> = {
+      'nf-test-version': '1.2.3',
+      profiles: '["docker","singularity"]',
+      'max-shards': '7'
+    }
+    getInput.mockImplementation((name) => inputs[name] ?? '')
 
     await run()
     const outputs = outputValues()
     expect(outputs['nf-test-version']).toBe('1.2.3')
     expect(outputs['profiles']).toBe('["docker","singularity"]')
     expect(outputs['max-shards']).toBe('7')
+  })
+
+  it('ignores a ci: block in .nf-core.yml, and warns that it is no longer read', async () => {
+    writeFileSync(
+      join(workDir, '.nf-core.yml'),
+      ['ci:', '  runner: 8cpu-linux-x64', '  max_shards: 7'].join('\n')
+    )
+    await run()
+    expect(outputValues()['runner']).toBe('4cpu-linux-x64')
+    expect(outputValues()['max-shards']).toBe('20')
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining('no longer read')
+    )
   })
 
   it('reads an unquoted version number in .nf-core.yml as the maintainer wrote it', async () => {
@@ -129,26 +139,20 @@ describe('run', () => {
     expect(nfCoreVersion).not.toBe('2.1')
   })
 
-  it('fails with a message naming the setting when a config value has the wrong type', async () => {
-    writeFileSync(
-      join(workDir, '.nf-core.yml'),
-      ['ci:', '  max_shards: "many"'].join('\n')
+  it('writes no output when a setting fails to resolve', async () => {
+    getInput.mockImplementation((name) =>
+      name === 'max-shards' ? '"many"' : ''
     )
-    await expect(run()).rejects.toThrow(/max_shards/)
-  })
-
-  it('fails when ci: is not a mapping, instead of silently using every default', async () => {
-    writeFileSync(join(workDir, '.nf-core.yml'), 'ci: oops\n')
-    await expect(run()).rejects.toThrow(/'ci'/)
+    await expect(run()).rejects.toThrow(/max-shards/)
     expect(setOutput).not.toHaveBeenCalled()
   })
 
-  it('writes no output when a setting fails to resolve', async () => {
+  it('writes no output when a read-only value has the wrong type', async () => {
     writeFileSync(
       join(workDir, '.nf-core.yml'),
-      ['ci:', '  max_shards: "many"'].join('\n')
+      ['template:', '  name: [rnaseq]'].join('\n')
     )
-    await expect(run()).rejects.toThrow()
+    await expect(run()).rejects.toThrow(/template\.name/)
     expect(setOutput).not.toHaveBeenCalled()
   })
 
@@ -168,20 +172,7 @@ describe('run', () => {
     expect(setOutput).not.toHaveBeenCalled()
   })
 
-  it('warns about unknown keys under ci', async () => {
-    writeFileSync(
-      join(workDir, '.nf-core.yml'),
-      ['ci:', '  max_shard: 7'].join('\n')
-    )
-    await run()
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('max_shard'))
-  })
-
-  it('lets an action input take precedence over the config file', async () => {
-    writeFileSync(
-      join(workDir, '.nf-core.yml'),
-      ['ci:', '  runner: 8cpu-linux-x64'].join('\n')
-    )
+  it('uses an action input over the default', async () => {
     getInput.mockImplementation((name) =>
       name === 'runner' ? '16cpu-linux-x64' : ''
     )
@@ -189,46 +180,34 @@ describe('run', () => {
     expect(outputValues()['runner']).toBe('16cpu-linux-x64')
   })
 
-  it('fails with a clear message naming the setting and the file when runner is blank', async () => {
-    writeFileSync(
-      join(workDir, '.nf-core.yml'),
-      ['ci:', '  runner: ""'].join('\n')
-    )
-    await expect(run()).rejects.toThrow(/ci\.runner.*must not be empty/s)
-    expect(setOutput).not.toHaveBeenCalled()
-  })
-
-  it('fails with a clear message naming the setting and the file when profiles is an empty list', async () => {
-    writeFileSync(
-      join(workDir, '.nf-core.yml'),
-      ['ci:', '  profiles: []'].join('\n')
-    )
-    await expect(run()).rejects.toThrow(/ci\.profiles.*empty list/s)
+  it('fails with a clear message naming the input when profiles is an empty list', async () => {
+    getInput.mockImplementation((name) => (name === 'profiles' ? '[]' : ''))
+    await expect(run()).rejects.toThrow(/profiles.*empty list/s)
     expect(setOutput).not.toHaveBeenCalled()
   })
 
   it('resolves config-file relative to the workspace', async () => {
     writeFileSync(
       join(workDir, 'custom.yml'),
-      ['ci:', '  runner: gpu-runner'].join('\n')
+      ['template:', '  name: custom-pipeline'].join('\n')
     )
     getInput.mockImplementation((name) =>
       name === 'config-file' ? 'custom.yml' : ''
     )
     await run()
-    expect(outputValues()['runner']).toBe('gpu-runner')
+    expect(outputValues()['pipeline-name']).toBe('custom-pipeline')
   })
 
   it('encodes a value containing a newline and a workflow command before logging it', async () => {
     writeFileSync(
       join(workDir, '.nf-core.yml'),
-      ['ci:', '  runner: "abc\\n::error::pwned"'].join('\n')
+      ['template:', '  name: "abc\\n::error::pwned"'].join('\n')
     )
     await run()
 
     const logLine = info.mock.calls
       .map((call) => call[0] as string)
-      .find((line) => line.includes('runner ='))
+      .find((line) => line.includes('pipeline-name ='))
     expect(logLine).toBeDefined()
     // JSON.stringify renders the embedded newline as the two characters
     // '\' 'n', not an actual line break, so the log line stays one line and
@@ -243,25 +222,25 @@ describe('run', () => {
   it('accepts a config-file name that starts with two dots but is not an escape', async () => {
     writeFileSync(
       join(workDir, '..nf-core.yml'),
-      ['ci:', '  runner: dotted-runner'].join('\n')
+      ['template:', '  name: dotted'].join('\n')
     )
     getInput.mockImplementation((name) =>
       name === 'config-file' ? '..nf-core.yml' : ''
     )
     await run()
-    expect(outputValues()['runner']).toBe('dotted-runner')
+    expect(outputValues()['pipeline-name']).toBe('dotted')
   })
 
   it('escapes a value from .nf-core.yml in the summary table', async () => {
     writeFileSync(
       join(workDir, '.nf-core.yml'),
-      ['ci:', "  runner: '<img src=x onerror=alert(1)> & co'"].join('\n')
+      ['template:', "  name: '<img src=x onerror=alert(1)> & co'"].join('\n')
     )
     await run()
 
     const [rows] = summary.addTable!.mock.calls[0] as [unknown[][]]
-    const runnerRow = rows.find((row) => row[0] === 'runner') as string[]
-    expect(runnerRow[1]).toBe('&lt;img src=x onerror=alert(1)&gt; &amp; co')
-    expect(runnerRow[1]).not.toContain('<img')
+    const nameRow = rows.find((row) => row[0] === 'pipeline-name') as string[]
+    expect(nameRow[1]).toBe('&lt;img src=x onerror=alert(1)&gt; &amp; co')
+    expect(nameRow[1]).not.toContain('<img')
   })
 })

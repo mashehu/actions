@@ -15,9 +15,7 @@ describe('defineSetting infers each entry against its own kind', () => {
 // erroring and `npm run type-check` fails right here.
 defineSetting({
   output: 'synthetic-bad-setting',
-  configPath: 'ci.synthetic_bad_setting',
   kind: 'number',
   // @ts-expect-error 'number' requires a numeric default, not a string.
-  default: 'oops',
-  hasInput: true
+  default: 'oops'
 })

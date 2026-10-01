@@ -19,7 +19,7 @@ describe('action.yml matches the settings registry', () => {
   it('declares exactly one input per configurable setting, plus config-file', () => {
     const expectedInputs = new Set([
       'config-file',
-      ...SETTINGS.filter((s) => s.hasInput).map((s) => s.output)
+      ...SETTINGS.filter((s) => s.configPath === undefined).map((s) => s.output)
     ])
     expect(new Set(Object.keys(actionYaml.inputs ?? {}))).toEqual(
       expectedInputs

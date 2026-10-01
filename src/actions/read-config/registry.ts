@@ -1,6 +1,6 @@
 // The settings registry. One entry per setting. Add a setting by adding a
 // row here: action.yml, defaults and the resolver all read from this list.
-// action-yml-drift.test.ts checks action.yml against it.
+// The drift test in __tests__/read-config checks action.yml against it.
 
 export type ValueKind = 'string' | 'string-list' | 'number' | 'boolean'
 
@@ -13,20 +13,24 @@ export type ValueForKind<K extends ValueKind> = K extends 'string'
       : number
 
 export interface SettingDef<K extends ValueKind = ValueKind> {
-  /** Name of the action output. Also the action input name, when hasInput is true. */
+  /** Name of the action output. Also the action input name, for a setting with no configPath. */
   output: string
-  /** Dot-separated path to the value in .nf-core.yml, for example 'ci.nf_test_version'. */
-  configPath: string
+  /**
+   * Dot-separated path to the value in .nf-core.yml, for example
+   * 'template.name'. Set only for the read-only metadata nf-core/tools
+   * itself writes to that file; such a setting has no action input. Unset
+   * for a CI setting, which comes from the action input or the default and
+   * is never read from .nf-core.yml.
+   */
+  configPath?: string
   kind: K
   /**
    * Value used when nothing else sets it.
-   * Read-only settings (hasInput: false) have no real default: they fall
+   * Read-only settings (with a configPath) have no real default: they fall
    * back to this and a warning, because the value should already be in the
    * pipeline's existing schema.
    */
   default: ValueForKind<K>
-  /** False for read-only settings taken from the existing schema, not from ci:. */
-  hasInput: boolean
 }
 
 // Infers each row against its own `kind`, so a mismatched default (for
@@ -45,89 +49,66 @@ export const DEFAULT_CONFIG_FILE = '.nf-core.yml'
 export const SETTINGS: readonly SettingDef[] = [
   defineSetting({
     output: 'nf-test-version',
-    configPath: 'ci.nf_test_version',
     kind: 'string',
-    default: '0.9.5',
-    hasInput: true
+    default: '0.9.5'
   }),
   defineSetting({
     output: 'nextflow-versions',
-    configPath: 'ci.nextflow_versions',
     kind: 'string-list',
-    default: ['25.10.4', 'latest-everything'],
-    hasInput: true
+    default: ['25.10.4', 'latest-everything']
   }),
   defineSetting({
     output: 'profiles',
-    configPath: 'ci.profiles',
     kind: 'string-list',
-    default: ['conda', 'docker', 'singularity'],
-    hasInput: true
+    default: ['conda', 'docker', 'singularity']
   }),
   defineSetting({
     output: 'max-shards',
-    configPath: 'ci.max_shards',
     kind: 'number',
-    default: 20,
-    hasInput: true
+    default: 20
   }),
   defineSetting({
     output: 'nf-test-workdir',
-    configPath: 'ci.nf_test_workdir',
     kind: 'string',
-    default: '~',
-    hasInput: true
+    default: '~'
   }),
   defineSetting({
     output: 'runner',
-    configPath: 'ci.runner',
     kind: 'string',
-    default: '4cpu-linux-x64',
-    hasInput: true
+    default: '4cpu-linux-x64'
   }),
   defineSetting({
     output: 'nextflow-lint',
-    configPath: 'ci.nextflow_lint',
     kind: 'boolean',
     // Opt-in: 'nextflow lint' was never part of the pipeline template, so a
     // pipeline that adopts 'linting.yml' must not gain a new failing check
     // by default. See README.md for how a pipeline opts in.
-    default: false,
-    hasInput: true
+    default: false
   }),
   defineSetting({
     output: 'awsfulltest-required-approvals',
-    configPath: 'ci.awsfulltest_required_approvals',
     kind: 'number',
-    // Two distinct, trusted approvals. A pipeline with too few maintainers
-    // to reach that lowers it in .nf-core.yml.
-    default: 2,
-    hasInput: true
+    // Two distinct, trusted approvals. authorize-launch never accepts fewer
+    // than two on a pull request review, so a pipeline can only raise this.
+    // See README.md's awsfulltest.yml section for why.
+    default: 2
   }),
   defineSetting({
     output: 'nf-core-version',
     configPath: 'nf_core_version',
     kind: 'string',
-    default: '',
-    hasInput: false
+    default: ''
   }),
   defineSetting({
     output: 'repository-type',
     configPath: 'repository_type',
     kind: 'string',
-    default: '',
-    hasInput: false
+    default: ''
   }),
   defineSetting({
     output: 'pipeline-name',
     configPath: 'template.name',
     kind: 'string',
-    default: '',
-    hasInput: false
+    default: ''
   })
 ]
-
-/** Second segment of every configPath under the top-level 'ci' key, for the unknown-key check. */
-export const KNOWN_CI_KEYS: readonly string[] = SETTINGS.filter((setting) =>
-  setting.configPath.startsWith('ci.')
-).map((setting) => setting.configPath.slice('ci.'.length))

@@ -1,59 +1,54 @@
 name: Read CI config
 description: >-
-  Resolves nf-core pipeline CI settings from an action input, then .nf-core.yml,
-  then a built-in default, and exposes them as outputs.
+  Resolves nf-core pipeline CI settings from an action input, then a built-in
+  default, and exposes them as outputs. Also reads the pipeline metadata that
+  nf-core/tools writes to .nf-core.yml (template version, repository type,
+  pipeline name). CI settings are never read from .nf-core.yml.
 author: nf-core
 
 inputs:
   config-file:
     description: >-
-      Path to the pipeline's config file, relative to the workspace. An absolute
-      path is rejected.
+      Path to the pipeline's .nf-core.yml, relative to the workspace, for the
+      read-only metadata outputs. An absolute path is rejected.
     required: false
     default: .nf-core.yml
   nf-test-version:
     description: >-
-      nf-test version to use. Overrides 'ci.nf_test_version' in .nf-core.yml and
-      the built-in default.
+      nf-test version to use. Overrides the built-in default.
     required: false
   nextflow-versions:
     description: >-
       Nextflow versions to test against, as a JSON array of strings, for example
-      '["24.10.0","latest-everything"]'. Overrides 'ci.nextflow_versions' in
-      .nf-core.yml and the built-in default.
+      '["24.10.0","latest-everything"]'. Overrides the built-in default.
     required: false
   profiles:
     description: >-
       Container/environment profiles to test, as a JSON array of strings, for
-      example '["docker","singularity"]'. Overrides 'ci.profiles' in
-      .nf-core.yml and the built-in default.
+      example '["docker","singularity"]'. Overrides the built-in default.
     required: false
   max-shards:
     description: >-
-      Maximum number of nf-test shards, as a JSON number. Overrides
-      'ci.max_shards' in .nf-core.yml and the built-in default.
+      Maximum number of nf-test shards, as a JSON number. Overrides the built-in
+      default.
     required: false
   nf-test-workdir:
     description: >-
-      Working directory for nf-test. Overrides 'ci.nf_test_workdir' in
-      .nf-core.yml and the built-in default.
+      Working directory for nf-test. Overrides the built-in default.
     required: false
   runner:
     description: >-
-      GitHub Actions runner label to test on. Overrides 'ci.runner' in
-      .nf-core.yml and the built-in default.
+      GitHub Actions runner label to test on. Overrides the built-in default.
     required: false
   nextflow-lint:
     description: >-
       Whether to run the Nextflow strict-syntax lint, as 'true' or 'false'.
-      Overrides 'ci.nextflow_lint' in .nf-core.yml and the built-in default
-      (false).
+      Overrides the built-in default (false).
     required: false
   awsfulltest-required-approvals:
     description: >-
       Number of distinct, trusted approvals required to launch the AWS full
-      test, as a JSON number. Overrides 'ci.awsfulltest_required_approvals' in
-      .nf-core.yml and the built-in default (2).
+      test, as a JSON number. Overrides the built-in default (2).
     required: false
 
 outputs:

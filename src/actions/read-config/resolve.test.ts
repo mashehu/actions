@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals'
 import { parseDocument } from 'yaml'
-import type { SettingDef } from './registry.js'
-import { defineSetting, SETTINGS } from './registry.js'
+import type { SettingDef } from '../../src/actions/read-config/registry.js'
+import {
+  defineSetting,
+  SETTINGS
+} from '../../src/actions/read-config/registry.js'
 
 const getInput = jest.fn<(name: string) => string>()
 const info = jest.fn()
@@ -13,8 +16,8 @@ jest.unstable_mockModule('@actions/core', () => ({
   warning
 }))
 
-const { getAtPath, resolveSetting, warnUnknownCiKeys } =
-  await import('./resolve.js')
+const { getAtPath, resolveSetting, warnIgnoredCiBlock } =
+  await import('../../src/actions/read-config/resolve.js')
 
 /** Looks up a real registry entry by output name, so these tests can't drift from registry.ts. */
 function settingByOutput(output: string): SettingDef {
@@ -33,15 +36,13 @@ const numberSetting = settingByOutput('max-shards')
 const booleanSetting = settingByOutput('nextflow-lint')
 const readOnlySetting = settingByOutput('pipeline-name')
 const nfCoreVersionSetting = settingByOutput('nf-core-version')
-const runnerSetting = settingByOutput('runner')
 
 /** Not a real registry setting; exercises a nested configPath. */
 const templateVersionSetting = defineSetting({
   output: 'template-version',
   configPath: 'template.version',
   kind: 'string',
-  default: '',
-  hasInput: false
+  default: ''
 })
 
 beforeEach(() => {
@@ -67,11 +68,9 @@ describe('getAtPath', () => {
 })
 
 describe('resolveSetting precedence', () => {
-  it('input wins over file and default, and logs it at info level', () => {
+  it('input wins over the default, and logs it at info level', () => {
     getInput.mockReturnValue('0.9.9')
-    const result = resolveSetting(stringSetting, {
-      ci: { nf_test_version: '1.0.0' }
-    })
+    const result = resolveSetting(stringSetting, undefined)
     expect(result).toEqual({ value: '0.9.9', source: 'input' })
     expect(info).toHaveBeenCalledWith(
       expect.stringContaining('nf-test-version')
@@ -79,24 +78,28 @@ describe('resolveSetting precedence', () => {
     expect(warning).not.toHaveBeenCalled()
   })
 
-  it('file wins over default, and logs it at info level', () => {
+  it('never reads a CI setting from the config file', () => {
     const result = resolveSetting(stringSetting, {
-      ci: { nf_test_version: '1.0.0' }
+      ci: { nf_test_version: '1.0.0' },
+      nf_test_version: '1.0.0'
     })
-    expect(result).toEqual({ value: '1.0.0', source: 'file' })
+    expect(result).toEqual({ value: '0.9.5', source: 'default' })
+  })
+
+  it('falls back to the default at info level, naming the setting and the default', () => {
+    const result = resolveSetting(stringSetting, undefined)
+    expect(result).toEqual({ value: '0.9.5', source: 'default' })
     expect(info).toHaveBeenCalledWith(
       expect.stringContaining('nf-test-version')
     )
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('0.9.5'))
     expect(warning).not.toHaveBeenCalled()
   })
 
-  it('falls back to the default and warns, naming the setting and the default', () => {
+  it('treats a blank input as not set', () => {
+    getInput.mockReturnValue('   ')
     const result = resolveSetting(stringSetting, undefined)
     expect(result).toEqual({ value: '0.9.5', source: 'default' })
-    expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining('nf-test-version')
-    )
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('0.9.5'))
   })
 
   it('a read-only setting with no matching path defaults to an empty string and warns', () => {
@@ -115,24 +118,15 @@ describe('resolveSetting precedence', () => {
     expect(result.value).toBe('rnaseq')
     expect(result.source).toBe('file')
   })
+
+  it('rejects a read-only config value of the wrong type, naming the path', () => {
+    expect(() =>
+      resolveSetting(readOnlySetting, { template: { name: ['rnaseq'] } })
+    ).toThrow(/template\.name.*a string/s)
+  })
 })
 
 describe('value kinds', () => {
-  it('parses a string-list from YAML', () => {
-    const result = resolveSetting(listSetting, {
-      ci: { profiles: ['docker', 'singularity'] }
-    })
-    expect(result).toEqual({
-      value: ['docker', 'singularity'],
-      source: 'file'
-    })
-  })
-
-  it('parses a number from YAML', () => {
-    const result = resolveSetting(numberSetting, { ci: { max_shards: 5 } })
-    expect(result).toEqual({ value: 5, source: 'file' })
-  })
-
   it('parses a string-list input as JSON', () => {
     getInput.mockReturnValue('["docker","singularity"]')
     const result = resolveSetting(listSetting, undefined)
@@ -152,23 +146,11 @@ describe('value kinds', () => {
     expect(() => resolveSetting(numberSetting, undefined)).toThrow(/max-shards/)
   })
 
-  it('rejects a config value of the wrong type, naming the setting and both kinds', () => {
-    expect(() =>
-      resolveSetting(numberSetting, { ci: { max_shards: 'many' } })
-    ).toThrow(/ci\.max_shards.*a number.*many/s)
-  })
-
-  it('rejects a list-shaped setting given a scalar', () => {
-    expect(() =>
-      resolveSetting(listSetting, { ci: { profiles: 'docker' } })
-    ).toThrow(/ci\.profiles/)
-  })
-
-  it('parses a boolean from YAML', () => {
-    const result = resolveSetting(booleanSetting, {
-      ci: { nextflow_lint: true }
-    })
-    expect(result).toEqual({ value: true, source: 'file' })
+  it('rejects a list-shaped input given a scalar', () => {
+    getInput.mockReturnValue('"docker"')
+    expect(() => resolveSetting(listSetting, undefined)).toThrow(
+      /profiles.*a list of strings/s
+    )
   })
 
   it('defaults a boolean setting to false when unset', () => {
@@ -180,12 +162,6 @@ describe('value kinds', () => {
     getInput.mockReturnValue('true')
     const result = resolveSetting(booleanSetting, undefined)
     expect(result).toEqual({ value: true, source: 'input' })
-  })
-
-  it('rejects a non-boolean config value, naming the setting and the kind', () => {
-    expect(() =>
-      resolveSetting(booleanSetting, { ci: { nextflow_lint: 'yes' } })
-    ).toThrow(/ci\.nextflow_lint.*a boolean.*yes/s)
   })
 
   it('rejects a non-boolean input', () => {
@@ -252,26 +228,22 @@ describe('a string setting given an unquoted YAML scalar', () => {
 })
 
 describe('kind: number requires a positive integer', () => {
-  it('rejects zero from the config file', () => {
-    expect(() =>
-      resolveSetting(numberSetting, { ci: { max_shards: 0 } })
-    ).toThrow(/max_shards.*positive integer/s)
-  })
-
-  it('rejects a negative number from the config file', () => {
-    expect(() =>
-      resolveSetting(numberSetting, { ci: { max_shards: -1 } })
-    ).toThrow(/positive integer/)
-  })
-
-  it('rejects a fraction from the config file', () => {
-    expect(() =>
-      resolveSetting(numberSetting, { ci: { max_shards: 2.5 } })
-    ).toThrow(/positive integer/)
-  })
-
-  it('rejects zero from the input', () => {
+  it('rejects zero', () => {
     getInput.mockReturnValue('0')
+    expect(() => resolveSetting(numberSetting, undefined)).toThrow(
+      /max-shards.*positive integer/s
+    )
+  })
+
+  it('rejects a negative number', () => {
+    getInput.mockReturnValue('-1')
+    expect(() => resolveSetting(numberSetting, undefined)).toThrow(
+      /positive integer/
+    )
+  })
+
+  it('rejects a fraction', () => {
+    getInput.mockReturnValue('2.5')
     expect(() => resolveSetting(numberSetting, undefined)).toThrow(
       /positive integer/
     )
@@ -279,13 +251,7 @@ describe('kind: number requires a positive integer', () => {
 })
 
 describe('kind: string-list requires a non-empty list', () => {
-  it('rejects an empty list from the config file, naming the setting and the file', () => {
-    expect(() => resolveSetting(listSetting, { ci: { profiles: [] } })).toThrow(
-      /ci\.profiles.*empty list/s
-    )
-  })
-
-  it('rejects an empty list from the input', () => {
+  it('rejects an empty list', () => {
     getInput.mockReturnValue('[]')
     expect(() => resolveSetting(listSetting, undefined)).toThrow(
       /profiles.*empty list/s
@@ -293,51 +259,28 @@ describe('kind: string-list requires a non-empty list', () => {
   })
 })
 
-describe('runner must not be blank', () => {
-  it('rejects an empty string from the config file, naming the setting and the file', () => {
-    expect(() => resolveSetting(runnerSetting, { ci: { runner: '' } })).toThrow(
-      /ci\.runner.*must not be empty/s
+describe('warnIgnoredCiBlock', () => {
+  it('warns, listing the keys, when ci: is still present', () => {
+    warnIgnoredCiBlock({ ci: { max_shards: 5, nf_test_version: '1.0.0' } })
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringMatching(/max_shards.*no longer read/s)
     )
   })
 
-  it('rejects a whitespace-only string from the config file', () => {
-    expect(() =>
-      resolveSetting(runnerSetting, { ci: { runner: '   ' } })
-    ).toThrow(/must not be empty/)
-  })
-
-  it('a blank runner input is treated as not set, and falls through to the file value', () => {
-    getInput.mockReturnValue('   ')
-    const result = resolveSetting(runnerSetting, { ci: { runner: '8cpu' } })
-    expect(result).toEqual({ value: '8cpu', source: 'file' })
-  })
-})
-
-describe('warnUnknownCiKeys', () => {
-  it('warns and lists unknown keys under ci', () => {
-    warnUnknownCiKeys({ ci: { max_shard: 5, nf_test_version: '1.0.0' } })
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('max_shard'))
-  })
-
-  it('does not warn when every key is known', () => {
-    warnUnknownCiKeys({ ci: { max_shards: 5 } })
-    expect(warning).not.toHaveBeenCalled()
+  it('warns, without throwing, when ci is not a mapping', () => {
+    expect(() => warnIgnoredCiBlock({ ci: 'oops' })).not.toThrow()
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining('no longer read')
+    )
   })
 
   it('does not warn when ci is absent', () => {
-    warnUnknownCiKeys({})
+    warnIgnoredCiBlock({})
     expect(warning).not.toHaveBeenCalled()
   })
 
-  it('does not throw when ci: has no value (parses as null)', () => {
-    expect(() => warnUnknownCiKeys({ ci: null })).not.toThrow()
-  })
-
-  it('throws when ci is a scalar instead of a mapping', () => {
-    expect(() => warnUnknownCiKeys({ ci: 'oops' })).toThrow(/'ci'/)
-  })
-
-  it('throws when ci is a list instead of a mapping', () => {
-    expect(() => warnUnknownCiKeys({ ci: ['oops'] })).toThrow(/'ci'/)
+  it('does not warn when ci: has no value (parses as null)', () => {
+    warnIgnoredCiBlock({ ci: null })
+    expect(warning).not.toHaveBeenCalled()
   })
 })
