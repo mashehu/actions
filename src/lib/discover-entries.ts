@@ -5,7 +5,7 @@ import { globSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 export interface ActionEntry {
-  /** Directory name of the action, for example 'read-config'. */
+  /** Directory name of the action, for example 'validate-patch'. */
   name: string
   /** Path to the action's entry file. */
   entry: string

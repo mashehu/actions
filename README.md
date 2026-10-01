@@ -33,21 +33,6 @@ in each.
 fails if those copies differ, so change a shared default in every workflow that
 declares it.
 
-## The `read-config` action
-
-The [`read-config`](actions/read-config) action reads the pipeline metadata
-nf-core/tools itself writes to `.nf-core.yml` and exposes it as outputs:
-`nf-core-version` (from `nf_core_version`) and `pipeline-name` (from
-`template.name`). No workflow here uses it yet; it is for the template workflows
-still to move here that need the pipeline's tools version or name.
-
-Its one input, `config-file`, defaults to `.nf-core.yml` and must stay inside
-the workspace. Neither output has a default: if `.nf-core.yml` does not set it,
-the output is an empty string and `read-config` logs a warning, so a caller must
-guard the value before using it. An unquoted version such as
-`nf_core_version: 2.10` resolves to `2.10` as written, not to the number `2.1`
-YAML parses it as.
-
 ## The `validate-patch` action
 
 The [`validate-patch`](actions/validate-patch) action is the last gate before a
